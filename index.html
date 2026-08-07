@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Athan — Prayer Times & Adhan Player</title>
+    <meta
+      name="description"
+      content="Leave this page open and Athan plays the call to prayer at Fajr, Dhuhr, Asr, Maghrib, and Isha for your city — anywhere in the world."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Amiri:wght@400;700&family=Outfit:wght@300;400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body data-theme="alafasy">
+    <div class="atmosphere" aria-hidden="true">
+      <div class="atmosphere__glow"></div>
+      <div class="atmosphere__mosque"></div>
+      <div class="atmosphere__veil"></div>
+    </div>
+
+    <header class="topbar">
+      <a class="brand" href="./">
+        <span class="brand__mark" aria-hidden="true">✦</span>
+        <span class="brand__name">Athan</span>
+      </a>
+      <p class="topbar__status" id="connectionStatus">Finding your location…</p>
+    </header>
+
+    <main class="shell">
+      <section class="hero" aria-labelledby="brandHeadline">
+        <div class="hero__dates" id="dateLine" aria-live="polite">
+          <p class="hero__date hero__date--gregorian">
+            <span class="hero__date-label">Gregorian</span>
+            <strong id="gregorianDate">—</strong>
+          </p>
+          <p class="hero__date hero__date--hijri">
+            <span class="hero__date-label">Hijri</span>
+            <strong id="hijriDate">—</strong>
+          </p>
+          <p class="hero__date hero__date--clock">
+            <span class="hero__date-label">Local time</span>
+            <strong id="localClock">—</strong>
+          </p>
+        </div>
+        <h1 class="hero__brand" id="brandHeadline">Athan</h1>
+        <p class="hero__lede">
+          Prayer times for your place. Leave the tab open — the Adhan plays when
+          it’s time.
+        </p>
+        <div class="hero__actions">
+          <button type="button" class="btn btn--primary" id="enableAudioBtn">
+            Enable Adhan audio
+          </button>
+          <button type="button" class="btn btn--ghost" id="useLocationBtn">
+            Use my location
+          </button>
+        </div>
+      </section>
+
+      <section class="stage" aria-label="Prayer times and Adhan player">
+        <article class="panel panel--times">
+          <div class="panel__head">
+            <div>
+              <h2 class="panel__title" id="locationTitle">Tampa, Florida</h2>
+              <p class="panel__sub" id="methodLabel">
+                Islamic Society of North America (ISNA)
+              </p>
+            </div>
+            <div class="next-pill" id="nextPill">
+              <span class="next-pill__label">Next</span>
+              <strong id="nextPrayerName">—</strong>
+              <span id="nextPrayerTime">—</span>
+            </div>
+          </div>
+
+          <div class="countdown" id="countdownBlock" hidden>
+            <span class="countdown__label">Time until next prayer</span>
+            <strong class="countdown__value" id="countdownValue">00:00:00</strong>
+          </div>
+
+          <ul class="prayers" id="prayerList" aria-live="polite"></ul>
+
+          <div class="adhan-picker">
+            <label class="field-label" for="adhanSelect"
+              >Select Adhan to play when it’s time</label
+            >
+            <select id="adhanSelect" class="select"></select>
+
+            <div class="checks">
+              <label class="check">
+                <input type="checkbox" id="playTahajjud" />
+                <span>Play Adhan for Tahajjud?</span>
+              </label>
+              <label class="check">
+                <input type="checkbox" id="differentFajr" />
+                <span>Play different Adhan at Fajr?</span>
+              </label>
+              <label class="check">
+                <input type="checkbox" id="showCountdown" checked />
+                <span>Show countdown timer for next prayer?</span>
+              </label>
+            </div>
+
+            <div class="fajr-row" id="fajrAdhanRow" hidden>
+              <label class="field-label" for="fajrAdhanSelect"
+                >Fajr Adhan</label
+              >
+              <select id="fajrAdhanSelect" class="select"></select>
+            </div>
+
+            <div class="player">
+              <audio id="adhanAudio" controls preload="metadata"></audio>
+              <p class="player__hint" id="audioHint">
+                Click <strong>Enable Adhan audio</strong> once so browsers allow
+                autoplay at prayer time.
+              </p>
+            </div>
+          </div>
+        </article>
+
+        <aside class="panel panel--settings">
+          <h2 class="panel__title">Settings</h2>
+          <p class="panel__sub">
+            Times follow IslamicFinder-style ISNA angles by default (Fajr 15°,
+            Isha 15°), calculated for any city worldwide.
+          </p>
+
+          <label class="field-label" for="locationInput">Location</label>
+          <div class="search">
+            <input
+              id="locationInput"
+              class="input"
+              type="search"
+              placeholder="Start typing a city, state, or country"
+              autocomplete="off"
+              spellcheck="false"
+            />
+            <button type="button" class="btn btn--gold" id="searchBtn">
+              Search
+            </button>
+          </div>
+          <ul class="suggestions" id="suggestions" hidden></ul>
+
+          <label class="field-label" for="methodSelect">Calculation method</label>
+          <select id="methodSelect" class="select"></select>
+
+          <label class="field-label" for="schoolSelect">Juristic school (Asr)</label>
+          <select id="schoolSelect" class="select">
+            <option value="0">Shafi, Maliki, Hanbali</option>
+            <option value="1">Hanafi</option>
+          </select>
+
+          <div class="settings-actions">
+            <button type="button" class="btn btn--gold" id="refreshBtn">
+              Refresh
+            </button>
+            <button type="button" class="btn btn--ghost" id="fullscreenBtn">
+              Fullscreen
+            </button>
+          </div>
+
+          <p class="footnote" id="metaNote">
+            Data via Aladhan prayer-times API using the same ISNA method shown
+            on IslamicFinder for U.S. cities such as Tampa.
+          </p>
+        </aside>
+      </section>
+    </main>
+
+    <footer class="statusbar">
+      <span id="statusNext">Next prayer: —</span>
+      <span id="audioState">Audio: off</span>
+    </footer>
+
+    <script type="module" src="./app.js?v=safari-countdown-2"></script>
+  </body>
+</html>
