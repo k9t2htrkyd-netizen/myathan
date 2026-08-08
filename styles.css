@@ -267,7 +267,32 @@ body[data-theme="jordan"] {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
+  align-items: center;
   gap: 0.75rem;
+}
+
+.audio-arm-status {
+  margin: 0;
+  min-width: 12rem;
+  padding: 0.55rem 0.9rem;
+  border-radius: 999px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  background: rgba(247, 241, 230, 0.14);
+  color: rgba(247, 241, 230, 0.88);
+  border: 1px solid rgba(247, 241, 230, 0.28);
+}
+
+.audio-arm-status.is-on {
+  background: rgba(212, 181, 106, 0.95);
+  color: #1a1408;
+  border-color: transparent;
+}
+
+.audio-arm-status.is-off {
+  background: rgba(247, 241, 230, 0.14);
+  color: rgba(247, 241, 230, 0.88);
 }
 
 .stage {
@@ -688,6 +713,22 @@ body[data-theme="jordan"] {
   backdrop-filter: blur(10px);
   border-top: 1px solid rgba(247, 241, 230, 0.08);
   font-size: 0.92rem;
+}
+
+.statusbar__audio {
+  font-weight: 700;
+  padding: 0.15rem 0.65rem;
+  border-radius: 999px;
+}
+
+.statusbar__audio.is-on {
+  background: rgba(212, 181, 106, 0.95);
+  color: #1a1408;
+}
+
+.statusbar__audio.is-off {
+  background: rgba(247, 241, 230, 0.12);
+  color: rgba(247, 241, 230, 0.88);
 }
 
 @keyframes breathe {

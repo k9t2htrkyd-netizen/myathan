@@ -57,8 +57,11 @@
         </p>
         <div class="hero__actions">
           <button type="button" class="btn btn--primary" id="enableAudioBtn">
-            Audio: Off — tap to arm autoplay
+            Audio: Off
           </button>
+          <p class="audio-arm-status" id="audioArmStatus" aria-live="polite">
+            Status: Off — autoplay not armed
+          </p>
         </div>
       </section>
 
@@ -212,9 +215,9 @@
 
     <footer class="statusbar">
       <span id="statusNext">Next prayer: —</span>
-      <span id="audioState">Audio: off</span>
+      <span id="audioState" class="statusbar__audio is-off">Audio: Off</span>
     </footer>
 
-    <script type="module" src="./app.js?v=autoplay-arm-2"></script>
+    <script type="module" src="./app.js?v=audio-status-ui-1"></script>
   </body>
 </html>

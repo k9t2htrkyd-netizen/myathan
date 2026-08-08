@@ -159,6 +159,7 @@ const els = {
   keepAliveAudio: document.getElementById("keepAliveAudio"),
   audioHint: document.getElementById("audioHint"),
   enableAudioBtn: document.getElementById("enableAudioBtn"),
+  audioArmStatus: document.getElementById("audioArmStatus"),
   adhanTransport: document.getElementById("adhanTransport"),
   fajrAdhanTransport: document.getElementById("fajrAdhanTransport"),
   locationInput: document.getElementById("locationInput"),
@@ -1014,13 +1015,19 @@ async function silentlyUnlockAudio() {
   const elements = [els.adhanAudio, els.alarmAudio, els.keepAliveAudio].filter(
     Boolean
   );
+  let unlocked = 0;
   for (const el of elements) {
-    el.muted = false;
-    el.volume = 1;
-    el.src = KEEP_ALIVE_SRC;
-    await el.play();
-    el.pause();
-    el.currentTime = 0;
+    try {
+      el.muted = false;
+      el.volume = 1;
+      el.src = KEEP_ALIVE_SRC;
+      await el.play();
+      el.pause();
+      el.currentTime = 0;
+      unlocked += 1;
+    } catch (err) {
+      console.warn("Audio unlock skipped for", el.id, err);
+    }
   }
 
   // Point Adhan/alarm at real files for later scheduled play — do not play them now.
@@ -1031,6 +1038,10 @@ async function silentlyUnlockAudio() {
   }
   if (els.keepAliveAudio) {
     els.keepAliveAudio.src = KEEP_ALIVE_SRC;
+  }
+
+  if (!unlocked) {
+    throw new Error("Could not unlock any audio element");
   }
 }
 
@@ -1144,18 +1155,28 @@ function checkPrayerAlarm() {
 }
 
 function updateAudioUi() {
-  els.enableAudioBtn.classList.toggle("is-on", state.audioEnabled);
-  els.enableAudioBtn.setAttribute(
-    "aria-pressed",
-    state.audioEnabled ? "true" : "false"
-  );
-  els.enableAudioBtn.textContent = state.audioEnabled
-    ? "Audio: On — plays at prayer time"
-    : "Audio: Off — tap to arm autoplay";
-  els.audioState.textContent = state.audioEnabled
-    ? "Audio: on (autoplay armed)"
-    : "Audio: off (manual preview only)";
-  if (state.audioEnabled) {
+  const on = Boolean(state.audioEnabled);
+  els.enableAudioBtn.classList.toggle("is-on", on);
+  els.enableAudioBtn.setAttribute("aria-pressed", on ? "true" : "false");
+  els.enableAudioBtn.textContent = on ? "Audio: On" : "Audio: Off";
+
+  if (els.audioArmStatus) {
+    els.audioArmStatus.classList.toggle("is-on", on);
+    els.audioArmStatus.classList.toggle("is-off", !on);
+    els.audioArmStatus.textContent = on
+      ? "Status: On — armed for prayer / alarm times"
+      : "Status: Off — autoplay not armed";
+  }
+
+  if (els.audioState) {
+    els.audioState.classList.toggle("is-on", on);
+    els.audioState.classList.toggle("is-off", !on);
+    els.audioState.textContent = on
+      ? "Audio: On (armed)"
+      : "Audio: Off";
+  }
+
+  if (on) {
     els.audioHint.textContent =
       "Autoplay is On. No sound until the next scheduled Adhan or enabled alarm time. Preview buttons still work anytime.";
   } else {
@@ -1189,6 +1210,7 @@ function releaseWakeLock() {
 }
 
 async function toggleAudio() {
+  // Turn off
   if (state.audioEnabled) {
     state.audioEnabled = false;
     stopAllAudio({ keepArmed: false });
@@ -1198,21 +1220,27 @@ async function toggleAudio() {
     return;
   }
 
+  // Turn on immediately so the UI always reflects the tap, then unlock audio.
+  state.audioEnabled = true;
+  updateAudioUi();
+  els.enableAudioBtn.disabled = true;
   try {
     await silentlyUnlockAudio();
-    state.audioEnabled = true;
-    updateAudioUi();
     await startKeepAlive();
     await requestWakeLock();
     updateMediaSession("paused", "Athan — autoplay armed");
-    // Catch a prayer/alarm if Enable was pressed during that exact minute.
     checkPrayerAlarm();
+    updateAudioUi();
   } catch (err) {
     state.audioEnabled = false;
+    stopKeepAlive();
+    releaseWakeLock();
     updateAudioUi();
     els.audioHint.textContent =
-      "Could not arm autoplay. Tap the button again after interacting with the page.";
+      "Could not arm autoplay. Tap Audio: Off / On again after interacting with the page.";
     console.warn(err);
+  } finally {
+    els.enableAudioBtn.disabled = false;
   }
 }
 
