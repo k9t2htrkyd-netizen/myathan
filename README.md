@@ -6,7 +6,5 @@ Static Athan prayer-times web player.
 
 - Framework preset: **None**
 - Build command: *(leave empty)*
-- Build output directory: `/` (or leave default for no-build static sites)
-- Root directory: `/`
-
-Custom domain: `myathan.link`
+- Build output directory: `/`
+- Custom domain: `myathan.link`

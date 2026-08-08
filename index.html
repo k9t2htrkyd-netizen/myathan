@@ -59,14 +59,6 @@
           <button type="button" class="btn btn--primary" id="enableAudioBtn">
             Enable Adhan audio
           </button>
-          <button
-            type="button"
-            class="btn btn--ghost"
-            id="stopAudioBtn"
-            hidden
-          >
-            Stop sound
-          </button>
         </div>
       </section>
 
@@ -97,7 +89,10 @@
             <label class="field-label" for="adhanSelect"
               >Select Adhan to play when it’s time</label
             >
-            <select id="adhanSelect" class="select"></select>
+            <div class="sound-row">
+              <select id="adhanSelect" class="select"></select>
+              <div class="transport" id="adhanTransport" aria-label="Preview Adhan"></div>
+            </div>
 
             <div class="checks">
               <label class="check">
@@ -114,7 +109,14 @@
               <label class="field-label" for="fajrAdhanSelect"
                 >Fajr Adhan</label
               >
-              <select id="fajrAdhanSelect" class="select"></select>
+              <div class="sound-row">
+                <select id="fajrAdhanSelect" class="select"></select>
+                <div
+                  class="transport"
+                  id="fajrAdhanTransport"
+                  aria-label="Preview Fajr Adhan"
+                ></div>
+              </div>
             </div>
 
             <div class="secondary-alerts" id="secondaryAlerts">
@@ -122,6 +124,7 @@
               <p class="secondary-alerts__lede">
                 Sunrise, Midnight, First Third, and Tahajjud can optionally play
                 a short alarm for 60 seconds (or a full Adhan if you pick one).
+                Use Play next to each sound to preview it.
               </p>
               <div id="secondaryAlertsList"></div>
             </div>
@@ -149,20 +152,10 @@
                 loop
                 hidden
               ></audio>
-              <div class="player__toolbar">
-                <button
-                  type="button"
-                  class="btn btn--ghost"
-                  id="stopAudioBtnInline"
-                  hidden
-                >
-                  Stop sound
-                </button>
-              </div>
               <p class="player__hint" id="audioHint">
                 Click <strong>Enable Adhan audio</strong> once so browsers allow
-                autoplay at prayer time. On mobile, leave this tab open to hear
-                alerts in the background.
+                autoplay at prayer time. Use Play / Pause / Stop beside each
+                Adhan or alarm to preview sounds.
               </p>
             </div>
           </div>
@@ -222,6 +215,6 @@
       <span id="audioState">Audio: off</span>
     </footer>
 
-    <script type="module" src="./app.js?v=alarm60-bg-names-1"></script>
+    <script type="module" src="./app.js?v=preview-transport-1"></script>
   </body>
 </html>

@@ -159,8 +159,8 @@ const els = {
   keepAliveAudio: document.getElementById("keepAliveAudio"),
   audioHint: document.getElementById("audioHint"),
   enableAudioBtn: document.getElementById("enableAudioBtn"),
-  stopAudioBtn: document.getElementById("stopAudioBtn"),
-  stopAudioBtnInline: document.getElementById("stopAudioBtnInline"),
+  adhanTransport: document.getElementById("adhanTransport"),
+  fajrAdhanTransport: document.getElementById("fajrAdhanTransport"),
   locationInput: document.getElementById("locationInput"),
   searchBtn: document.getElementById("searchBtn"),
   suggestions: document.getElementById("suggestions"),
@@ -190,6 +190,8 @@ const state = {
   wakeLock: null,
   alarmStopTimer: null,
   alarmLoopHandler: null,
+  previewId: null,
+  transportControls: new Map(),
   searchTimer: null,
   searchRequestId: 0,
 };
@@ -473,6 +475,10 @@ function alarmUrlFor(soundId) {
 
 function renderSecondaryAlerts() {
   if (!els.secondaryAlertsList) return;
+  // Drop prior alarm transport bindings before rebuilding rows.
+  for (const key of [...state.transportControls.keys()]) {
+    if (key.startsWith("alarm-")) state.transportControls.delete(key);
+  }
   els.secondaryAlertsList.innerHTML = "";
   for (const key of SECONDARY_TIMES) {
     const cfg = state.secondaryAlerts[key] || DEFAULT_SECONDARY_ALERTS[key];
@@ -495,7 +501,8 @@ function renderSecondaryAlerts() {
 
     const select = document.createElement("select");
     select.className = "select";
-    select.disabled = !cfg.enabled;
+    // Keep sound picker enabled so every clip can be previewed even when Off.
+    select.disabled = false;
     const alarmGroup = document.createElement("optgroup");
     alarmGroup.label = "Alarms";
     for (const sound of ALARM_SOUNDS) {
@@ -515,6 +522,26 @@ function renderSecondaryAlerts() {
     select.append(alarmGroup, adhanGroup);
     select.value = cfg.sound;
 
+    const transportId = `alarm-${key}`;
+    const transport = createTransport(transportId, {
+      onPlay: async () => {
+        try {
+          const soundId = select.value;
+          const label =
+            SECONDARY_SOUNDS.find((s) => s.id === soundId)?.name ||
+            LABELS[key] ||
+            key;
+          await previewAlarmSound(soundId, transportId, label);
+        } catch (err) {
+          els.audioHint.textContent =
+            "Could not play alarm preview. Tap Play again after interacting with the page.";
+          console.warn(err);
+        }
+      },
+      onPause: () => pausePreview(transportId),
+      onStop: () => stopPreview(transportId),
+    });
+
     input.addEventListener("change", () => {
       if (!state.secondaryAlerts[key]) {
         state.secondaryAlerts[key] = {
@@ -523,7 +550,6 @@ function renderSecondaryAlerts() {
       }
       state.secondaryAlerts[key].enabled = input.checked;
       label.textContent = input.checked ? "On" : "Off";
-      select.disabled = !input.checked;
       saveSettings();
     });
     select.addEventListener("change", () => {
@@ -536,7 +562,8 @@ function renderSecondaryAlerts() {
       saveSettings();
     });
 
-    row.append(name, toggle, select);
+    // Previews work even when the alert is Off — so you can hear every sound.
+    row.append(name, toggle, select, transport);
     els.secondaryAlertsList.appendChild(row);
   }
 }
@@ -661,6 +688,208 @@ function syncAudioSource(force = false) {
   applyTheme(preferred);
 }
 
+function createTransport(id, { onPlay, onPause, onStop }, host = null) {
+  const wrap = host || document.createElement("div");
+  wrap.className = "transport";
+  wrap.dataset.transportId = id;
+  wrap.replaceChildren();
+
+  const play = document.createElement("button");
+  play.type = "button";
+  play.className = "transport__btn";
+  play.dataset.action = "play";
+  play.textContent = "Play";
+  play.addEventListener("click", () => onPlay());
+
+  const pause = document.createElement("button");
+  pause.type = "button";
+  pause.className = "transport__btn";
+  pause.dataset.action = "pause";
+  pause.textContent = "Pause";
+  pause.addEventListener("click", () => onPause());
+
+  const stop = document.createElement("button");
+  stop.type = "button";
+  stop.className = "transport__btn";
+  stop.dataset.action = "stop";
+  stop.textContent = "Stop";
+  stop.addEventListener("click", () => onStop());
+
+  wrap.append(play, pause, stop);
+  state.transportControls.set(id, { wrap, play, pause, stop });
+  return wrap;
+}
+
+function setTransportActive(id, mode) {
+  for (const [key, ctrl] of state.transportControls) {
+    ctrl.play.classList.toggle("is-active", key === id && mode === "playing");
+    ctrl.pause.classList.toggle("is-active", key === id && mode === "paused");
+    ctrl.stop.classList.toggle("is-active", false);
+  }
+}
+
+function sameAudioSrc(audioEl, url) {
+  if (!audioEl?.src || !url) return false;
+  try {
+    return new URL(url, window.location.href).href === audioEl.src;
+  } catch {
+    return audioEl.src.endsWith(url.replace(/^\.\//, ""));
+  }
+}
+
+async function previewAdhan(url, transportId, label) {
+  stopKeepAlive();
+  clearAlarmPlayback();
+  try {
+    els.alarmAudio.pause();
+  } catch {
+    /* ignore */
+  }
+
+  if (
+    state.previewId === transportId &&
+    sameAudioSrc(els.adhanAudio, url) &&
+    !els.adhanAudio.paused
+  ) {
+    return;
+  }
+
+  if (
+    state.previewId === transportId &&
+    sameAudioSrc(els.adhanAudio, url) &&
+    els.adhanAudio.paused &&
+    els.adhanAudio.currentTime > 0
+  ) {
+    await els.adhanAudio.play();
+    state.previewId = transportId;
+    setTransportActive(transportId, "playing");
+    els.audioHint.textContent = `Playing preview: ${label}`;
+    updateMediaSession("playing", label);
+    return;
+  }
+
+  if (!sameAudioSrc(els.adhanAudio, url)) {
+    els.adhanAudio.src = url;
+  }
+  els.adhanAudio.currentTime = 0;
+  await els.adhanAudio.play();
+  state.previewId = transportId;
+  setTransportActive(transportId, "playing");
+  els.audioHint.textContent = `Playing preview: ${label}`;
+  updateMediaSession("playing", label);
+}
+
+async function previewAlarmSound(soundId, transportId, label) {
+  stopKeepAlive();
+  try {
+    els.adhanAudio.pause();
+  } catch {
+    /* ignore */
+  }
+  clearAlarmPlayback();
+
+  const url = alarmUrlFor(soundId);
+  if (
+    state.previewId === transportId &&
+    sameAudioSrc(els.alarmAudio, url) &&
+    els.alarmAudio.paused &&
+    els.alarmAudio.currentTime > 0
+  ) {
+    await els.alarmAudio.play();
+    state.previewId = transportId;
+    setTransportActive(transportId, "playing");
+    els.audioHint.textContent = `Playing preview: ${label}`;
+    updateMediaSession("playing", label);
+    return;
+  }
+
+  els.alarmAudio.src = url;
+  els.alarmAudio.currentTime = 0;
+  await els.alarmAudio.play();
+  state.previewId = transportId;
+  setTransportActive(transportId, "playing");
+  els.audioHint.textContent = `Playing preview: ${label}`;
+  updateMediaSession("playing", label);
+}
+
+function pausePreview(transportId) {
+  const usingAdhan =
+    transportId === "adhan" || transportId === "fajr-adhan";
+  const audio = usingAdhan ? els.adhanAudio : els.alarmAudio;
+  try {
+    audio.pause();
+  } catch {
+    /* ignore */
+  }
+  if (state.previewId === transportId) {
+    setTransportActive(transportId, "paused");
+    els.audioHint.textContent = "Paused preview.";
+    updateMediaSession("paused");
+  }
+}
+
+function stopPreview(transportId) {
+  const usingAdhan =
+    transportId === "adhan" || transportId === "fajr-adhan";
+  if (usingAdhan) {
+    try {
+      els.adhanAudio.pause();
+      els.adhanAudio.currentTime = 0;
+    } catch {
+      /* ignore */
+    }
+  } else {
+    clearAlarmPlayback();
+  }
+  if (state.previewId === transportId || !transportId) {
+    state.previewId = null;
+    setTransportActive(transportId || "", "stopped");
+    if (state.audioEnabled) startKeepAlive();
+    els.audioHint.textContent = state.audioEnabled
+      ? "Stopped. Audio is still armed for prayer time."
+      : "Preview stopped.";
+    updateMediaSession("stopped");
+  }
+}
+
+function mountAdhanTransports() {
+  const fill = (host, id, getUrl, getLabel) => {
+    if (!host) return;
+    createTransport(
+      id,
+      {
+        onPlay: async () => {
+          try {
+            await previewAdhan(getUrl(), id, getLabel());
+          } catch (err) {
+            els.audioHint.textContent =
+              "Could not play Adhan preview. Tap Play again after interacting with the page.";
+            console.warn(err);
+          }
+        },
+        onPause: () => pausePreview(id),
+        onStop: () => stopPreview(id),
+      },
+      host
+    );
+  };
+
+  fill(
+    els.adhanTransport,
+    "adhan",
+    () => els.adhanSelect.value,
+    () => ADHANS.find((a) => a.url === els.adhanSelect.value)?.name || "Adhan"
+  );
+  fill(
+    els.fajrAdhanTransport,
+    "fajr-adhan",
+    () => els.fajrAdhanSelect.value,
+    () =>
+      ADHANS.find((a) => a.url === els.fajrAdhanSelect.value)?.name ||
+      "Fajr Adhan"
+  );
+}
+
 function isShortAlarmSound(soundId) {
   return ALARM_SOUNDS.some((s) => s.id === soundId);
 }
@@ -690,6 +919,8 @@ function stopAllAudio({ keepArmed = true } = {}) {
   } catch {
     /* ignore */
   }
+  state.previewId = null;
+  setTransportActive("", "stopped");
   updateMediaSession("stopped");
   if (keepArmed && state.audioEnabled) {
     els.audioHint.textContent =
@@ -866,19 +1097,13 @@ function updateAudioUi() {
   els.enableAudioBtn.textContent = state.audioEnabled
     ? "Disable Adhan audio"
     : "Enable Adhan audio";
-  if (els.stopAudioBtn) {
-    els.stopAudioBtn.hidden = !state.audioEnabled;
-  }
-  if (els.stopAudioBtnInline) {
-    els.stopAudioBtnInline.hidden = !state.audioEnabled;
-  }
   els.audioState.textContent = state.audioEnabled ? "Audio: on" : "Audio: off";
   if (state.audioEnabled) {
     els.audioHint.textContent =
-      "Audio is armed. On phones, leave this tab open (screen can lock) — Adhan and alarms can still play in the background. Use Stop to silence what’s playing now.";
+      "Audio is armed. On phones, leave this tab open (screen can lock) — Adhan and alarms can still play in the background. Use Play / Pause / Stop beside each sound to preview.";
   } else {
     els.audioHint.textContent =
-      "Click Enable Adhan audio once so browsers allow autoplay at prayer time.";
+      "Click Enable Adhan audio once so browsers allow autoplay at prayer time. You can still preview sounds with Play beside each picker.";
   }
 }
 
@@ -1060,13 +1285,11 @@ function bindUi() {
   els.fajrAdhanRow.hidden = !state.differentFajr;
   els.locationInput.value = state.location.label;
   renderSecondaryAlerts();
+  mountAdhanTransports();
   syncAudioSource(true);
   updateAudioUi();
 
   els.enableAudioBtn.addEventListener("click", toggleAudio);
-  const stopHandler = () => stopAllAudio();
-  els.stopAudioBtn?.addEventListener("click", stopHandler);
-  els.stopAudioBtnInline?.addEventListener("click", stopHandler);
   els.refreshBtn.addEventListener("click", () => refreshTimings());
   els.searchBtn.addEventListener("click", () => runSearch());
   els.locationInput.addEventListener("input", scheduleAutocomplete);
@@ -1142,11 +1365,21 @@ function bindUi() {
 
   els.adhanAudio.addEventListener("ended", () => {
     updateMediaSession("stopped");
+    if (state.previewId === "adhan" || state.previewId === "fajr-adhan") {
+      setTransportActive(state.previewId, "stopped");
+      state.previewId = null;
+    }
     if (state.audioEnabled) startKeepAlive();
   });
   els.alarmAudio.addEventListener("ended", () => {
-    // Loop handler for short alarms owns restart; for full Adhan clips, re-arm keep-alive.
-    if (!state.alarmLoopHandler && state.audioEnabled) startKeepAlive();
+    // Loop handler for scheduled short alarms owns restart; previews end here.
+    if (!state.alarmLoopHandler) {
+      if (state.previewId?.startsWith("alarm-")) {
+        setTransportActive(state.previewId, "stopped");
+        state.previewId = null;
+      }
+      if (state.audioEnabled) startKeepAlive();
+    }
   });
 
   bindMediaSessionHandlers();
