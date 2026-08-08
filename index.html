@@ -8,6 +8,9 @@
       name="description"
       content="Leave this page open and Athan plays the call to prayer at Fajr, Dhuhr, Asr, Maghrib, and Isha for your city — anywhere in the world."
     />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -49,12 +52,20 @@
         </div>
         <h1 class="hero__brand" id="brandHeadline">Athan</h1>
         <p class="hero__lede">
-          Prayer times for your place. Leave the tab open — the Adhan plays when
-          it’s time.
+          Prayer times for your place. Leave this tab open on your phone or
+          computer — Adhan and alarms can keep playing in the background.
         </p>
         <div class="hero__actions">
           <button type="button" class="btn btn--primary" id="enableAudioBtn">
             Enable Adhan audio
+          </button>
+          <button
+            type="button"
+            class="btn btn--ghost"
+            id="stopAudioBtn"
+            hidden
+          >
+            Stop sound
           </button>
         </div>
       </section>
@@ -110,17 +121,48 @@
               <h3 class="secondary-alerts__title">Other times (alarm alerts)</h3>
               <p class="secondary-alerts__lede">
                 Sunrise, Midnight, First Third, and Tahajjud can optionally play
-                a short alarm instead of Adhan.
+                a short alarm for 60 seconds (or a full Adhan if you pick one).
               </p>
               <div id="secondaryAlertsList"></div>
             </div>
 
             <div class="player">
-              <audio id="adhanAudio" controls preload="metadata"></audio>
-              <audio id="alarmAudio" preload="metadata" hidden></audio>
+              <audio
+                id="adhanAudio"
+                controls
+                preload="metadata"
+                playsinline
+                webkit-playsinline
+              ></audio>
+              <audio
+                id="alarmAudio"
+                preload="metadata"
+                playsinline
+                webkit-playsinline
+                hidden
+              ></audio>
+              <audio
+                id="keepAliveAudio"
+                preload="auto"
+                playsinline
+                webkit-playsinline
+                loop
+                hidden
+              ></audio>
+              <div class="player__toolbar">
+                <button
+                  type="button"
+                  class="btn btn--ghost"
+                  id="stopAudioBtnInline"
+                  hidden
+                >
+                  Stop sound
+                </button>
+              </div>
               <p class="player__hint" id="audioHint">
                 Click <strong>Enable Adhan audio</strong> once so browsers allow
-                autoplay at prayer time.
+                autoplay at prayer time. On mobile, leave this tab open to hear
+                alerts in the background.
               </p>
             </div>
           </div>
@@ -180,6 +222,6 @@
       <span id="audioState">Audio: off</span>
     </footer>
 
-    <script type="module" src="./app.js?v=secondary-sounds-rooster-1"></script>
+    <script type="module" src="./app.js?v=alarm60-bg-names-1"></script>
   </body>
 </html>

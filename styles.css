@@ -518,6 +518,12 @@ body[data-theme="jordan"] {
   border-radius: 12px;
 }
 
+.player__toolbar {
+  display: flex;
+  gap: 0.55rem;
+  margin-top: 0.65rem;
+}
+
 .player__hint {
   margin: 0.55rem 0 0;
   font-size: 0.86rem;

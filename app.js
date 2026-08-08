@@ -2,7 +2,7 @@ const JORDAN_ADHAN_URL = "./audio/athan-amman-jordan.mp3";
 
 const ADHANS = [
   {
-    name: "Yet Another Adhan by Mishary Rashid Alafasy",
+    name: "Adhan by Alafasy - style 1",
     url: "https://cdn.aladhan.com/audio/adhans/a9.mp3",
     theme: "alafasy",
   },
@@ -37,7 +37,7 @@ const ADHANS = [
     theme: "zahrani",
   },
   {
-    name: "Athan Amman Jordan — Ma'rouf Rashad Al-Sharif",
+    name: "Adhan by Ma'rouf Rashad Al-Sharif from Jordan",
     url: JORDAN_ADHAN_URL,
     theme: "jordan",
     credit: "https://soundcloud.com/jihad-khaled-m-abdulhaq/athan-amman-jordan",
@@ -119,6 +119,12 @@ const LABELS = {
   Lastthird: "Last Third (Tahajjud)",
 };
 
+const ALARM_PLAY_MS = 60_000;
+
+/** Tiny near-silent WAV used to keep the mobile audio session alive in background. */
+const KEEP_ALIVE_SRC =
+  "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAA==";
+
 const STORAGE_KEY = "athan-player-settings-v1";
 
 const DEFAULT_LOCATION = {
@@ -150,8 +156,11 @@ const els = {
   secondaryAlertsList: document.getElementById("secondaryAlertsList"),
   adhanAudio: document.getElementById("adhanAudio"),
   alarmAudio: document.getElementById("alarmAudio"),
+  keepAliveAudio: document.getElementById("keepAliveAudio"),
   audioHint: document.getElementById("audioHint"),
   enableAudioBtn: document.getElementById("enableAudioBtn"),
+  stopAudioBtn: document.getElementById("stopAudioBtn"),
+  stopAudioBtnInline: document.getElementById("stopAudioBtnInline"),
   locationInput: document.getElementById("locationInput"),
   searchBtn: document.getElementById("searchBtn"),
   suggestions: document.getElementById("suggestions"),
@@ -179,6 +188,8 @@ const state = {
   secondaryAlerts: structuredClone(DEFAULT_SECONDARY_ALERTS),
   lastPlayedKey: null,
   wakeLock: null,
+  alarmStopTimer: null,
+  alarmLoopHandler: null,
   searchTimer: null,
   searchRequestId: 0,
 };
@@ -650,6 +661,98 @@ function syncAudioSource(force = false) {
   applyTheme(preferred);
 }
 
+function isShortAlarmSound(soundId) {
+  return ALARM_SOUNDS.some((s) => s.id === soundId);
+}
+
+function clearAlarmPlayback() {
+  if (state.alarmStopTimer) {
+    clearTimeout(state.alarmStopTimer);
+    state.alarmStopTimer = null;
+  }
+  if (state.alarmLoopHandler) {
+    els.alarmAudio.removeEventListener("ended", state.alarmLoopHandler);
+    state.alarmLoopHandler = null;
+  }
+  try {
+    els.alarmAudio.pause();
+    els.alarmAudio.currentTime = 0;
+  } catch {
+    /* ignore */
+  }
+}
+
+function stopAllAudio({ keepArmed = true } = {}) {
+  clearAlarmPlayback();
+  try {
+    els.adhanAudio.pause();
+    els.adhanAudio.currentTime = 0;
+  } catch {
+    /* ignore */
+  }
+  updateMediaSession("stopped");
+  if (keepArmed && state.audioEnabled) {
+    els.audioHint.textContent =
+      "Stopped. Audio is still armed — alarms and Adhan will play at the next scheduled time.";
+    startKeepAlive();
+  } else {
+    els.audioHint.textContent =
+      "Click Enable Adhan audio once so browsers allow autoplay at prayer time.";
+  }
+}
+
+function updateMediaSession(stateName, title = "Athan") {
+  if (!("mediaSession" in navigator)) return;
+  try {
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title,
+      artist: "Athan",
+      album: "Prayer times",
+    });
+    navigator.mediaSession.playbackState =
+      stateName === "playing" ? "playing" : "paused";
+  } catch {
+    /* optional */
+  }
+}
+
+function bindMediaSessionHandlers() {
+  if (!("mediaSession" in navigator)) return;
+  try {
+    navigator.mediaSession.setActionHandler("pause", () => stopAllAudio());
+    navigator.mediaSession.setActionHandler("stop", () => stopAllAudio());
+    navigator.mediaSession.setActionHandler("play", () => {
+      if (state.audioEnabled) startKeepAlive();
+    });
+  } catch {
+    /* optional */
+  }
+}
+
+async function startKeepAlive() {
+  if (!els.keepAliveAudio || !state.audioEnabled) return;
+  try {
+    if (!els.keepAliveAudio.src) {
+      els.keepAliveAudio.src = KEEP_ALIVE_SRC;
+    }
+    els.keepAliveAudio.loop = true;
+    els.keepAliveAudio.volume = 0.01;
+    await els.keepAliveAudio.play();
+  } catch {
+    /* mobile may still suspend; best-effort */
+  }
+}
+
+function stopKeepAlive() {
+  if (!els.keepAliveAudio) return;
+  try {
+    els.keepAliveAudio.pause();
+    els.keepAliveAudio.currentTime = 0;
+  } catch {
+    /* ignore */
+  }
+}
+
 async function playAdhan(prayerName) {
   if (!state.audioEnabled) return;
   const url =
@@ -660,10 +763,13 @@ async function playAdhan(prayerName) {
     els.adhanAudio.src = url;
   }
   try {
-    els.alarmAudio.pause();
+    clearAlarmPlayback();
+    stopKeepAlive();
     els.adhanAudio.currentTime = 0;
     await els.adhanAudio.play();
-    els.audioHint.textContent = `Playing Adhan for ${LABELS[prayerName] || prayerName}.`;
+    const label = LABELS[prayerName] || prayerName;
+    els.audioHint.textContent = `Playing Adhan for ${label}.`;
+    updateMediaSession("playing", `Adhan — ${label}`);
   } catch (err) {
     state.audioEnabled = false;
     updateAudioUi();
@@ -676,12 +782,42 @@ async function playAdhan(prayerName) {
 async function playAlarm(prayerName, soundId) {
   if (!state.audioEnabled) return;
   const url = alarmUrlFor(soundId);
+  const label = LABELS[prayerName] || prayerName;
+  clearAlarmPlayback();
   els.alarmAudio.src = url;
   try {
     els.adhanAudio.pause();
+    stopKeepAlive();
     els.alarmAudio.currentTime = 0;
-    await els.alarmAudio.play();
-    els.audioHint.textContent = `Playing alarm for ${LABELS[prayerName] || prayerName}.`;
+
+    // Short alarm clips loop for 60s. Full Adhan picks in this dropdown play once.
+    if (isShortAlarmSound(soundId)) {
+      const endsAt = Date.now() + ALARM_PLAY_MS;
+      state.alarmLoopHandler = () => {
+        if (Date.now() >= endsAt) {
+          clearAlarmPlayback();
+          startKeepAlive();
+          els.audioHint.textContent = `Alarm finished for ${label}.`;
+          updateMediaSession("stopped");
+          return;
+        }
+        els.alarmAudio.currentTime = 0;
+        els.alarmAudio.play().catch(() => {});
+      };
+      els.alarmAudio.addEventListener("ended", state.alarmLoopHandler);
+      state.alarmStopTimer = setTimeout(() => {
+        clearAlarmPlayback();
+        startKeepAlive();
+        els.audioHint.textContent = `Alarm finished for ${label}.`;
+        updateMediaSession("stopped");
+      }, ALARM_PLAY_MS);
+      await els.alarmAudio.play();
+      els.audioHint.textContent = `Playing alarm for ${label} (60 seconds).`;
+    } else {
+      await els.alarmAudio.play();
+      els.audioHint.textContent = `Playing alert sound for ${label}.`;
+    }
+    updateMediaSession("playing", `Alarm — ${label}`);
   } catch (err) {
     state.audioEnabled = false;
     updateAudioUi();
@@ -730,10 +866,16 @@ function updateAudioUi() {
   els.enableAudioBtn.textContent = state.audioEnabled
     ? "Disable Adhan audio"
     : "Enable Adhan audio";
+  if (els.stopAudioBtn) {
+    els.stopAudioBtn.hidden = !state.audioEnabled;
+  }
+  if (els.stopAudioBtnInline) {
+    els.stopAudioBtnInline.hidden = !state.audioEnabled;
+  }
   els.audioState.textContent = state.audioEnabled ? "Audio: on" : "Audio: off";
   if (state.audioEnabled) {
     els.audioHint.textContent =
-      "Audio is armed. Keep this tab open and unmuted to hear the Adhan at prayer time. Click the button again to turn it off.";
+      "Audio is armed. On phones, leave this tab open (screen can lock) — Adhan and alarms can still play in the background. Use Stop to silence what’s playing now.";
   } else {
     els.audioHint.textContent =
       "Click Enable Adhan audio once so browsers allow autoplay at prayer time.";
@@ -768,12 +910,8 @@ async function toggleAudio() {
   // Odd clicks enable, even clicks disable (toggle).
   if (state.audioEnabled) {
     state.audioEnabled = false;
-    try {
-      els.adhanAudio.pause();
-      els.alarmAudio.pause();
-    } catch {
-      /* ignore */
-    }
+    stopAllAudio({ keepArmed: false });
+    stopKeepAlive();
     releaseWakeLock();
     updateAudioUi();
     return;
@@ -791,7 +929,9 @@ async function toggleAudio() {
     els.alarmAudio.currentTime = 0;
     state.audioEnabled = true;
     updateAudioUi();
+    await startKeepAlive();
     await requestWakeLock();
+    updateMediaSession("paused", "Athan — armed");
   } catch (err) {
     state.audioEnabled = false;
     updateAudioUi();
@@ -924,6 +1064,9 @@ function bindUi() {
   updateAudioUi();
 
   els.enableAudioBtn.addEventListener("click", toggleAudio);
+  const stopHandler = () => stopAllAudio();
+  els.stopAudioBtn?.addEventListener("click", stopHandler);
+  els.stopAudioBtnInline?.addEventListener("click", stopHandler);
   els.refreshBtn.addEventListener("click", () => refreshTimings());
   els.searchBtn.addEventListener("click", () => runSearch());
   els.locationInput.addEventListener("input", scheduleAutocomplete);
@@ -993,8 +1136,20 @@ function bindUi() {
   document.addEventListener("visibilitychange", async () => {
     if (document.visibilityState === "visible" && state.audioEnabled) {
       await requestWakeLock();
+      await startKeepAlive();
     }
   });
+
+  els.adhanAudio.addEventListener("ended", () => {
+    updateMediaSession("stopped");
+    if (state.audioEnabled) startKeepAlive();
+  });
+  els.alarmAudio.addEventListener("ended", () => {
+    // Loop handler for short alarms owns restart; for full Adhan clips, re-arm keep-alive.
+    if (!state.alarmLoopHandler && state.audioEnabled) startKeepAlive();
+  });
+
+  bindMediaSessionHandlers();
 }
 
 async function init() {
