@@ -1,3 +1,18 @@
-.*
-!.gitignore
+# OS / junk
 .DS_Store
+._*
+**/._*
+
+# Local tooling
+.env
+.env.*
+.tools/
+
+# macOS build artifacts (keep Sources; don't publish binaries)
+macos/.build/
+macos/AthanBar.app/
+macos/**/*.app/
+
+# SwiftPM / Xcode
+DerivedData/
+*.xcuserstate

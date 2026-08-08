@@ -1,5 +1,13 @@
 import Foundation
 
+struct PlaceSuggestion: Identifiable, Equatable {
+    let id = UUID()
+    let label: String
+    let latitude: Double
+    let longitude: Double
+    let timezone: String?
+}
+
 @MainActor
 final class PrayerService: ObservableObject {
     @Published var day: PrayerDay?
@@ -11,15 +19,21 @@ final class PrayerService: ObservableObject {
     @Published var latitude: Double = 27.9506
     @Published var longitude: Double = -82.4572
     @Published var locationLabel: String = "Tampa, Florida, United States"
+    @Published var locationQuery: String = "Tampa, Florida, United States"
+    @Published var suggestions: [PlaceSuggestion] = []
+    @Published var isSearchingPlaces = false
     @Published var method: Int = 2
     @Published var school: Int = 0
 
     private var refreshTimer: Timer?
     private var tickTimer: Timer?
+    private var searchTask: Task<Void, Never>?
+    private var searchRequestID = 0
     private let defaults = UserDefaults.standard
 
     init() {
         loadSavedLocation()
+        locationQuery = locationLabel
         startTimers()
         Task { await refresh() }
     }
@@ -27,6 +41,7 @@ final class PrayerService: ObservableObject {
     deinit {
         refreshTimer?.invalidate()
         tickTimer?.invalidate()
+        searchTask?.cancel()
     }
 
     func startTimers() {
@@ -58,22 +73,73 @@ final class PrayerService: ObservableObject {
         defaults.set(school, forKey: "school")
     }
 
-    func useDeviceLocation() async {
-        statusText = "Requesting location…"
-        let locator = LocationHelper()
+    func schedulePlaceSearch(for query: String) {
+        locationQuery = query
+        searchTask?.cancel()
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count >= 2 else {
+            suggestions = []
+            isSearchingPlaces = false
+            return
+        }
+
+        isSearchingPlaces = true
+        let requestID = searchRequestID + 1
+        searchRequestID = requestID
+
+        searchTask = Task {
+            try? await Task.sleep(nanoseconds: 280_000_000)
+            guard !Task.isCancelled else { return }
+            await searchPlaces(query: trimmed, requestID: requestID)
+        }
+    }
+
+    func selectPlace(_ place: PlaceSuggestion) async {
+        latitude = place.latitude
+        longitude = place.longitude
+        locationLabel = place.label
+        locationQuery = place.label
+        suggestions = []
+        isSearchingPlaces = false
+        saveLocation()
+        await refresh()
+    }
+
+    private func searchPlaces(query: String, requestID: Int) async {
+        let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query
+        let urlString =
+            "https://geocoding-api.open-meteo.com/v1/search?name=\(encoded)&count=8&language=en&format=json"
+        guard let url = URL(string: urlString) else {
+            isSearchingPlaces = false
+            return
+        }
+
         do {
-            let coord = try await locator.requestCoordinate()
-            latitude = coord.latitude
-            longitude = coord.longitude
-            if let place = try? await reverseGeocode(lat: latitude, lon: longitude) {
-                locationLabel = place
-            } else {
-                locationLabel = String(format: "%.3f, %.3f", latitude, longitude)
+            let (data, _) = try await URLSession.shared.data(from: url)
+            guard requestID == searchRequestID else { return }
+            let decoded = try JSONDecoder().decode(OpenMeteoSearchResponse.self, from: data)
+            let places = (decoded.results ?? []).map { result in
+                let label = [result.name, result.admin1, result.country]
+                    .compactMap { $0 }
+                    .filter { !$0.isEmpty }
+                    .joined(separator: ", ")
+                return PlaceSuggestion(
+                    label: label,
+                    latitude: result.latitude,
+                    longitude: result.longitude,
+                    timezone: result.timezone
+                )
             }
-            saveLocation()
-            await refresh()
+            suggestions = places
+            isSearchingPlaces = false
+            statusText = places.isEmpty ? "No matching places" : "\(places.count) places found"
+        } catch is CancellationError {
+            // ignore
         } catch {
-            statusText = "Location unavailable — using saved place"
+            guard requestID == searchRequestID else { return }
+            suggestions = []
+            isSearchingPlaces = false
+            statusText = "Place search failed"
         }
     }
 
@@ -127,9 +193,6 @@ final class PrayerService: ObservableObject {
                 hijri: "\(h.day) \(h.month.en) \(h.year) AH",
                 timings: list
             )
-            if !tz.isEmpty {
-                // keep for countdown
-            }
             statusText = "Times ready"
             updateNextAndCountdown()
         } catch {
@@ -182,19 +245,24 @@ final class PrayerService: ObservableObject {
         }
     }
 
-    private func reverseGeocode(lat: Double, lon: Double) async throws -> String {
-        let url = URL(string:
-            "https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=\(lat)&longitude=\(lon)&localityLanguage=en"
-        )!
-        let (data, _) = try await URLSession.shared.data(from: url)
-        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-        let city = (json?["city"] as? String)
-            ?? (json?["locality"] as? String)
-            ?? (json?["principalSubdivision"] as? String)
-            ?? "Current location"
-        let region = json?["principalSubdivision"] as? String ?? ""
-        let country = json?["countryName"] as? String ?? ""
-        return [city, region, country].filter { !$0.isEmpty }.joined(separator: ", ")
+    struct DueSecondaryAlert {
+        let id: String
+        let name: String
+        let soundId: String
+    }
+
+    func currentSecondaryAlertIfDue(configs: [String: SecondaryAlertConfig]) -> DueSecondaryAlert? {
+        guard let day else { return nil }
+        let parts = Self.localParts(timezone: day.timezone)
+        let nowMinutes = parts.hour * 60 + parts.minute
+        for key in PrayerName.secondaryTimes {
+            guard let cfg = configs[key], cfg.enabled else { continue }
+            guard let timing = day.timings.first(where: { $0.id == key }) else { continue }
+            if Self.minutes(timing.time24) == nowMinutes {
+                return DueSecondaryAlert(id: key, name: timing.name, soundId: cfg.soundId)
+            }
+        }
+        return nil
     }
 
     static func minutes(_ time24: String) -> Int {
@@ -237,6 +305,19 @@ private extension Int {
 }
 
 // MARK: - API models
+
+struct OpenMeteoSearchResponse: Decodable {
+    let results: [OpenMeteoPlace]?
+}
+
+struct OpenMeteoPlace: Decodable {
+    let name: String
+    let latitude: Double
+    let longitude: Double
+    let country: String?
+    let admin1: String?
+    let timezone: String?
+}
 
 struct AladhanResponse: Decodable {
     let code: Int

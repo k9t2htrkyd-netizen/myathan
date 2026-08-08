@@ -20,8 +20,9 @@ chmod +x "$MACOS/AthanBar"
 
 # Copy SwiftPM resource bundle if present
 BUNDLE_DIR="$(dirname "$BIN")"
-if compgen -G "$BUNDLE_DIR/AthanBar_AthanBar.bundle" > /dev/null; then
-  cp -R "$BUNDLE_DIR/AthanBar_AthanBar.bundle" "$RES/"
+BUNDLE="$BUNDLE_DIR/AthanBar_AthanBar.bundle"
+if [[ -d "$BUNDLE" ]]; then
+  cp -R "$BUNDLE" "$RES/"
 fi
 
 cat > "$CONTENTS/Info.plist" <<'PLIST'
@@ -53,6 +54,11 @@ cat > "$CONTENTS/Info.plist" <<'PLIST'
   <string>Athan uses your location to calculate accurate prayer times.</string>
   <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
   <string>Athan uses your location to calculate accurate prayer times.</string>
+  <key>NSAppTransportSecurity</key>
+  <dict>
+    <key>NSAllowsLocalNetworking</key>
+    <true/>
+  </dict>
 </dict>
 </plist>
 PLIST

@@ -77,6 +77,36 @@ const PRAYER_ORDER = [
 
 const ADHAN_PRAYERS = new Set(["Fajr", "Dhuhr", "Asr", "Maghrib", "Isha"]);
 
+const SECONDARY_TIMES = ["Sunrise", "Midnight", "Firstthird", "Lastthird"];
+
+const ALARM_SOUNDS = [
+  { id: "classic-alarm", name: "Classic Alarm", url: "./audio/alarms/classic-alarm.mp3" },
+  { id: "digital-clock-beep", name: "Digital Clock Beep", url: "./audio/alarms/digital-clock-beep.mp3" },
+  { id: "facility-alarm", name: "Facility Alarm", url: "./audio/alarms/facility-alarm.mp3" },
+  { id: "alert-alarm", name: "Alert Alarm", url: "./audio/alarms/alert-alarm.mp3" },
+  { id: "positive-notification", name: "Positive Notification", url: "./audio/alarms/positive-notification.mp3" },
+  { id: "correct-answer-tone", name: "Correct Answer Tone", url: "./audio/alarms/correct-answer-tone.mp3" },
+  { id: "game-notification-wave", name: "Rooster", url: "./audio/alarms/game-notification-wave.mp3" },
+  { id: "software-interface-start", name: "Interface Start", url: "./audio/alarms/software-interface-start.mp3" },
+];
+
+/** Alarms + Adhan clips selectable for Sunrise / Midnight / thirds. */
+const SECONDARY_SOUNDS = [
+  ...ALARM_SOUNDS,
+  ...ADHANS.map((adhan) => ({
+    id: `adhan-${adhan.theme}`,
+    name: adhan.name,
+    url: adhan.url,
+  })),
+];
+
+const DEFAULT_SECONDARY_ALERTS = {
+  Sunrise: { enabled: false, sound: "positive-notification" },
+  Midnight: { enabled: false, sound: "digital-clock-beep" },
+  Firstthird: { enabled: false, sound: "correct-answer-tone" },
+  Lastthird: { enabled: false, sound: "classic-alarm" },
+};
+
 const LABELS = {
   Fajr: "Fajr",
   Sunrise: "Sunrise",
@@ -115,13 +145,13 @@ const els = {
   adhanSelect: document.getElementById("adhanSelect"),
   fajrAdhanSelect: document.getElementById("fajrAdhanSelect"),
   fajrAdhanRow: document.getElementById("fajrAdhanRow"),
-  playTahajjud: document.getElementById("playTahajjud"),
   differentFajr: document.getElementById("differentFajr"),
   showCountdown: document.getElementById("showCountdown"),
+  secondaryAlertsList: document.getElementById("secondaryAlertsList"),
   adhanAudio: document.getElementById("adhanAudio"),
+  alarmAudio: document.getElementById("alarmAudio"),
   audioHint: document.getElementById("audioHint"),
   enableAudioBtn: document.getElementById("enableAudioBtn"),
-  useLocationBtn: document.getElementById("useLocationBtn"),
   locationInput: document.getElementById("locationInput"),
   searchBtn: document.getElementById("searchBtn"),
   suggestions: document.getElementById("suggestions"),
@@ -144,9 +174,9 @@ const state = {
   audioEnabled: false,
   adhanUrl: ADHANS[0].url,
   fajrAdhanUrl: ADHANS[0].url,
-  playTahajjud: false,
   differentFajr: false,
   showCountdown: true,
+  secondaryAlerts: structuredClone(DEFAULT_SECONDARY_ALERTS),
   lastPlayedKey: null,
   wakeLock: null,
   searchTimer: null,
@@ -164,9 +194,12 @@ function loadSettings() {
       school: saved.school ?? state.school,
       adhanUrl: saved.adhanUrl || state.adhanUrl,
       fajrAdhanUrl: saved.fajrAdhanUrl || state.fajrAdhanUrl,
-      playTahajjud: Boolean(saved.playTahajjud),
       differentFajr: Boolean(saved.differentFajr),
       showCountdown: saved.showCountdown !== false,
+      secondaryAlerts: {
+        ...structuredClone(DEFAULT_SECONDARY_ALERTS),
+        ...(saved.secondaryAlerts || {}),
+      },
     });
     // Migrate older Jordan CDN links to the local SoundCloud file.
     if (
@@ -183,6 +216,10 @@ function loadSettings() {
     ) {
       state.fajrAdhanUrl = JORDAN_ADHAN_URL;
     }
+    // Migrate old Tahajjud Adhan checkbox into secondary alerts.
+    if (saved.playTahajjud && state.secondaryAlerts.Lastthird) {
+      state.secondaryAlerts.Lastthird.enabled = true;
+    }
   } catch {
     /* ignore corrupt storage */
   }
@@ -197,9 +234,9 @@ function saveSettings() {
       school: state.school,
       adhanUrl: state.adhanUrl,
       fajrAdhanUrl: state.fajrAdhanUrl,
-      playTahajjud: state.playTahajjud,
       differentFajr: state.differentFajr,
       showCountdown: state.showCountdown,
+      secondaryAlerts: state.secondaryAlerts,
     })
   );
 }
@@ -376,24 +413,6 @@ function setStatus(message) {
   els.connectionStatus.textContent = message;
 }
 
-async function reverseGeocode(latitude, longitude) {
-  const url = `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${latitude}&longitude=${longitude}&localityLanguage=en`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error("Reverse geocode failed");
-  const data = await res.json();
-  const city =
-    data.city || data.locality || data.principalSubdivision || "Your location";
-  const region = data.principalSubdivision || "";
-  const country = data.countryName || "";
-  const label = [city, region, country].filter(Boolean).join(", ");
-  return {
-    label,
-    latitude,
-    longitude,
-    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-  };
-}
-
 async function searchPlaces(query) {
   const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(
     query
@@ -431,9 +450,84 @@ async function fetchTimings() {
 }
 
 function activeAdhanPrayers() {
-  const list = [...ADHAN_PRAYERS];
-  if (state.playTahajjud) list.push("Lastthird");
-  return list;
+  return [...ADHAN_PRAYERS];
+}
+
+function alarmUrlFor(soundId) {
+  return (
+    SECONDARY_SOUNDS.find((s) => s.id === soundId)?.url ||
+    SECONDARY_SOUNDS[0].url
+  );
+}
+
+function renderSecondaryAlerts() {
+  if (!els.secondaryAlertsList) return;
+  els.secondaryAlertsList.innerHTML = "";
+  for (const key of SECONDARY_TIMES) {
+    const cfg = state.secondaryAlerts[key] || DEFAULT_SECONDARY_ALERTS[key];
+    const row = document.createElement("div");
+    row.className = "secondary-row";
+    row.dataset.key = key;
+
+    const name = document.createElement("span");
+    name.className = "secondary-row__name";
+    name.textContent = LABELS[key] || key;
+
+    const toggle = document.createElement("label");
+    toggle.className = "check";
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.checked = Boolean(cfg.enabled);
+    const label = document.createElement("span");
+    label.textContent = input.checked ? "On" : "Off";
+    toggle.append(input, label);
+
+    const select = document.createElement("select");
+    select.className = "select";
+    select.disabled = !cfg.enabled;
+    const alarmGroup = document.createElement("optgroup");
+    alarmGroup.label = "Alarms";
+    for (const sound of ALARM_SOUNDS) {
+      const opt = document.createElement("option");
+      opt.value = sound.id;
+      opt.textContent = sound.name;
+      alarmGroup.appendChild(opt);
+    }
+    const adhanGroup = document.createElement("optgroup");
+    adhanGroup.label = "Adhan";
+    for (const sound of SECONDARY_SOUNDS.filter((s) => s.id.startsWith("adhan-"))) {
+      const opt = document.createElement("option");
+      opt.value = sound.id;
+      opt.textContent = sound.name;
+      adhanGroup.appendChild(opt);
+    }
+    select.append(alarmGroup, adhanGroup);
+    select.value = cfg.sound;
+
+    input.addEventListener("change", () => {
+      if (!state.secondaryAlerts[key]) {
+        state.secondaryAlerts[key] = {
+          ...DEFAULT_SECONDARY_ALERTS[key],
+        };
+      }
+      state.secondaryAlerts[key].enabled = input.checked;
+      label.textContent = input.checked ? "On" : "Off";
+      select.disabled = !input.checked;
+      saveSettings();
+    });
+    select.addEventListener("change", () => {
+      if (!state.secondaryAlerts[key]) {
+        state.secondaryAlerts[key] = {
+          ...DEFAULT_SECONDARY_ALERTS[key],
+        };
+      }
+      state.secondaryAlerts[key].sound = select.value;
+      saveSettings();
+    });
+
+    row.append(name, toggle, select);
+    els.secondaryAlertsList.appendChild(row);
+  }
 }
 
 function findNextPrayer() {
@@ -498,7 +592,7 @@ function renderPrayers() {
     if (mins <= now && !(next?.tomorrow && name === "Fajr")) {
       li.classList.add("is-passed");
     }
-    li.innerHTML = `<span class="prayer__name">${LABELS[name] || name}</span><span class="prayer__time">${formatDisplayTime(raw)}</span>`;
+    li.innerHTML = `<span class="prayer__name">${LABELS[name] || name}${ADHAN_PRAYERS.has(name) ? "" : `<small class="prayer__tag">${state.secondaryAlerts[name]?.enabled ? "alarm on" : "alarm off"}</small>`}</span><span class="prayer__time">${formatDisplayTime(raw)}</span>`;
     els.prayerList.appendChild(li);
   }
 
@@ -566,9 +660,28 @@ async function playAdhan(prayerName) {
     els.adhanAudio.src = url;
   }
   try {
+    els.alarmAudio.pause();
     els.adhanAudio.currentTime = 0;
     await els.adhanAudio.play();
     els.audioHint.textContent = `Playing Adhan for ${LABELS[prayerName] || prayerName}.`;
+  } catch (err) {
+    state.audioEnabled = false;
+    updateAudioUi();
+    els.audioHint.textContent =
+      "Autoplay was blocked. Click Enable Adhan audio again, then keep this tab open.";
+    console.warn(err);
+  }
+}
+
+async function playAlarm(prayerName, soundId) {
+  if (!state.audioEnabled) return;
+  const url = alarmUrlFor(soundId);
+  els.alarmAudio.src = url;
+  try {
+    els.adhanAudio.pause();
+    els.alarmAudio.currentTime = 0;
+    await els.alarmAudio.play();
+    els.audioHint.textContent = `Playing alarm for ${LABELS[prayerName] || prayerName}.`;
   } catch (err) {
     state.audioEnabled = false;
     updateAudioUi();
@@ -587,10 +700,23 @@ function checkPrayerAlarm() {
     const raw = state.timings[name];
     if (!raw) continue;
     if (prayerMinutes(raw) !== now) continue;
-    const key = `${day}:${name}`;
+    const key = `${day}:${name}:adhan`;
     if (state.lastPlayedKey === key) return;
     state.lastPlayedKey = key;
     playAdhan(name);
+    return;
+  }
+
+  for (const name of SECONDARY_TIMES) {
+    const cfg = state.secondaryAlerts[name];
+    if (!cfg?.enabled) continue;
+    const raw = state.timings[name];
+    if (!raw) continue;
+    if (prayerMinutes(raw) !== now) continue;
+    const key = `${day}:${name}:alarm`;
+    if (state.lastPlayedKey === key) return;
+    state.lastPlayedKey = key;
+    playAlarm(name, cfg.sound);
     return;
   }
 }
@@ -644,6 +770,7 @@ async function toggleAudio() {
     state.audioEnabled = false;
     try {
       els.adhanAudio.pause();
+      els.alarmAudio.pause();
     } catch {
       /* ignore */
     }
@@ -657,6 +784,11 @@ async function toggleAudio() {
     await els.adhanAudio.play();
     els.adhanAudio.pause();
     els.adhanAudio.currentTime = 0;
+    // Also unlock the alarm element for secondary alerts.
+    els.alarmAudio.src = ALARM_SOUNDS[0].url;
+    await els.alarmAudio.play();
+    els.alarmAudio.pause();
+    els.alarmAudio.currentTime = 0;
     state.audioEnabled = true;
     updateAudioUi();
     await requestWakeLock();
@@ -687,42 +819,6 @@ async function refreshTimings({ silent = false } = {}) {
     setStatus("Could not load prayer times");
     els.audioHint.textContent = err.message || "Network error loading times.";
   }
-}
-
-async function useDeviceLocation() {
-  setStatus("Requesting location permission…");
-  if (!navigator.geolocation) {
-    setStatus("Geolocation is not available in this browser");
-    return;
-  }
-
-  navigator.geolocation.getCurrentPosition(
-    async (pos) => {
-      try {
-        setStatus("Resolving your city…");
-        const place = await reverseGeocode(
-          pos.coords.latitude,
-          pos.coords.longitude
-        );
-        state.location = place;
-        await refreshTimings();
-      } catch (err) {
-        state.location = {
-          label: "Current location",
-          latitude: pos.coords.latitude,
-          longitude: pos.coords.longitude,
-          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-        };
-        await refreshTimings();
-        console.warn(err);
-      }
-    },
-    (err) => {
-      setStatus("Location permission denied — search for a city instead");
-      console.warn(err);
-    },
-    { enableHighAccuracy: true, timeout: 15000 }
-  );
 }
 
 function renderSuggestions(places, { loading = false } = {}) {
@@ -819,16 +915,15 @@ function bindUi() {
   );
 
   els.schoolSelect.value = String(state.school);
-  els.playTahajjud.checked = state.playTahajjud;
   els.differentFajr.checked = state.differentFajr;
   els.showCountdown.checked = state.showCountdown;
   els.fajrAdhanRow.hidden = !state.differentFajr;
   els.locationInput.value = state.location.label;
+  renderSecondaryAlerts();
   syncAudioSource(true);
   updateAudioUi();
 
   els.enableAudioBtn.addEventListener("click", toggleAudio);
-  els.useLocationBtn.addEventListener("click", useDeviceLocation);
   els.refreshBtn.addEventListener("click", () => refreshTimings());
   els.searchBtn.addEventListener("click", () => runSearch());
   els.locationInput.addEventListener("input", scheduleAutocomplete);
@@ -871,11 +966,6 @@ function bindUi() {
     await refreshTimings();
   });
 
-  els.playTahajjud.addEventListener("change", () => {
-    state.playTahajjud = els.playTahajjud.checked;
-    saveSettings();
-  });
-
   els.differentFajr.addEventListener("change", () => {
     state.differentFajr = els.differentFajr.checked;
     els.fajrAdhanRow.hidden = !state.differentFajr;
@@ -911,12 +1001,6 @@ async function init() {
   loadSettings();
   bindUi();
   await refreshTimings();
-
-  // Prefer device location on first visit when nothing custom was saved.
-  const saved = localStorage.getItem(STORAGE_KEY);
-  if (!saved) {
-    useDeviceLocation();
-  }
 
   setInterval(() => {
     updateLocalClock();

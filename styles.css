@@ -341,8 +341,49 @@ body[data-theme="jordan"] {
   background: rgba(13, 47, 40, 0.08);
 }
 
-.countdown[hidden] {
-  display: none !important;
+.secondary-alerts {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--line);
+}
+
+.secondary-alerts__title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+}
+
+.secondary-alerts__lede {
+  margin: 0.35rem 0 0.75rem;
+  color: var(--ink-soft);
+  font-size: 0.88rem;
+}
+
+.secondary-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) auto minmax(0, 1.4fr);
+  gap: 0.55rem;
+  align-items: center;
+  padding: 0.55rem 0;
+  border-bottom: 1px solid rgba(20, 32, 28, 0.08);
+}
+
+.secondary-row:last-child {
+  border-bottom: 0;
+}
+
+.secondary-row__name {
+  font-weight: 500;
+}
+
+.secondary-row .select {
+  padding: 0.45rem 0.6rem;
+}
+
+@media (max-width: 560px) {
+  .secondary-row {
+    grid-template-columns: 1fr;
+  }
 }
 
 .countdown__label {
@@ -390,6 +431,17 @@ body[data-theme="jordan"] {
 
 .prayer__name {
   font-weight: 500;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.prayer__tag {
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--ink-soft);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .prayer__time {

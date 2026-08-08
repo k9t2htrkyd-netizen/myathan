@@ -28,7 +28,7 @@
         <span class="brand__mark" aria-hidden="true">✦</span>
         <span class="brand__name">Athan</span>
       </a>
-      <p class="topbar__status" id="connectionStatus">Finding your location…</p>
+      <p class="topbar__status" id="connectionStatus">Loading prayer times…</p>
     </header>
 
     <main class="shell">
@@ -55,9 +55,6 @@
         <div class="hero__actions">
           <button type="button" class="btn btn--primary" id="enableAudioBtn">
             Enable Adhan audio
-          </button>
-          <button type="button" class="btn btn--ghost" id="useLocationBtn">
-            Use my location
           </button>
         </div>
       </section>
@@ -93,10 +90,6 @@
 
             <div class="checks">
               <label class="check">
-                <input type="checkbox" id="playTahajjud" />
-                <span>Play Adhan for Tahajjud?</span>
-              </label>
-              <label class="check">
                 <input type="checkbox" id="differentFajr" />
                 <span>Play different Adhan at Fajr?</span>
               </label>
@@ -113,8 +106,18 @@
               <select id="fajrAdhanSelect" class="select"></select>
             </div>
 
+            <div class="secondary-alerts" id="secondaryAlerts">
+              <h3 class="secondary-alerts__title">Other times (alarm alerts)</h3>
+              <p class="secondary-alerts__lede">
+                Sunrise, Midnight, First Third, and Tahajjud can optionally play
+                a short alarm instead of Adhan.
+              </p>
+              <div id="secondaryAlertsList"></div>
+            </div>
+
             <div class="player">
               <audio id="adhanAudio" controls preload="metadata"></audio>
+              <audio id="alarmAudio" preload="metadata" hidden></audio>
               <p class="player__hint" id="audioHint">
                 Click <strong>Enable Adhan audio</strong> once so browsers allow
                 autoplay at prayer time.
@@ -177,6 +180,6 @@
       <span id="audioState">Audio: off</span>
     </footer>
 
-    <script type="module" src="./app.js?v=safari-countdown-2"></script>
+    <script type="module" src="./app.js?v=secondary-sounds-rooster-1"></script>
   </body>
 </html>

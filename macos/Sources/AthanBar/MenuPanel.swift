@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct MenuPanel: View {
@@ -9,6 +10,8 @@ struct MenuPanel: View {
         VStack(alignment: .leading, spacing: 0) {
             header
             Divider().opacity(0.35)
+            locationSection
+            Divider().opacity(0.35)
             nextSection
             Divider().opacity(0.35)
             prayerList
@@ -17,7 +20,7 @@ struct MenuPanel: View {
             Divider().opacity(0.35)
             actionsSection
         }
-        .frame(width: 320)
+        .frame(width: 360)
         .background(.ultraThinMaterial)
     }
 
@@ -40,6 +43,58 @@ struct MenuPanel: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
+    }
+
+    private var locationSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Location")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            TextField("City, state, or country", text: Binding(
+                get: { prayers.locationQuery },
+                set: { prayers.schedulePlaceSearch(for: $0) }
+            ))
+            .textFieldStyle(.roundedBorder)
+            .onSubmit {
+                if let first = prayers.suggestions.first {
+                    Task { await prayers.selectPlace(first) }
+                }
+            }
+
+            if prayers.isSearchingPlaces {
+                Text("Searching cities…")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+
+            if !prayers.suggestions.isEmpty {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(prayers.suggestions) { place in
+                        Button {
+                            Task { await prayers.selectPlace(place) }
+                        } label: {
+                            HStack {
+                                Image(systemName: "mappin.and.ellipse")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                Text(place.label)
+                                    .font(.caption)
+                                    .multilineTextAlignment(.leading)
+                                Spacer()
+                            }
+                            .padding(.vertical, 6)
+                            .padding(.horizontal, 8)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .background(Color.primary.opacity(0.05))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+            }
+        }
+        .padding(14)
     }
 
     private var nextSection: some View {
@@ -75,14 +130,14 @@ struct MenuPanel: View {
 
     private var prayerList: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Today")
+            Text("Adhan prayers")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 14)
                 .padding(.top, 10)
                 .padding(.bottom, 4)
 
-            ForEach(prayers.day?.timings.filter { ["Fajr", "Dhuhr", "Asr", "Maghrib", "Isha"].contains($0.id) } ?? []) { timing in
+            ForEach(prayers.day?.timings.filter { PrayerName.adhanPrayers.contains($0.id) } ?? []) { timing in
                 HStack {
                     if prayers.nextPrayer?.id == timing.id {
                         Image(systemName: "checkmark")
@@ -105,7 +160,76 @@ struct MenuPanel: View {
                 )
             }
             .padding(.bottom, 8)
+
+            Divider().opacity(0.35)
+
+            Text("Other times (alarms)")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 14)
+                .padding(.top, 10)
+                .padding(.bottom, 4)
+
+            ForEach(PrayerName.secondaryTimes, id: \.self) { key in
+                secondaryRow(for: key)
+            }
+            .padding(.bottom, 8)
         }
+    }
+
+    private func secondaryRow(for key: String) -> some View {
+        let timing = prayers.day?.timings.first(where: { $0.id == key })
+        let config = audio.secondaryAlerts[key] ?? SecondaryAlertDefaults.values[key]!
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(PrayerName.labels[key] ?? key)
+                Spacer()
+                if let timing {
+                    Text(timing.displayTime)
+                        .foregroundStyle(.secondary)
+                }
+                Toggle("", isOn: Binding(
+                    get: { audio.secondaryAlerts[key]?.enabled ?? false },
+                    set: { audio.setSecondaryEnabled(key, enabled: $0) }
+                ))
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+            }
+            .padding(.horizontal, 14)
+
+            if config.enabled {
+                HStack {
+                    Picker("Sound", selection: Binding(
+                        get: { audio.secondaryAlerts[key]?.soundId ?? AlarmSound.all[0].id },
+                        set: { audio.setSecondarySound(key, soundId: $0) }
+                    )) {
+                        Section("Alarms") {
+                            ForEach(AlarmSound.alarms) { sound in
+                                Text(sound.name).tag(sound.id)
+                            }
+                        }
+                        Section("Adhan") {
+                            ForEach(AlarmSound.adhans) { sound in
+                                Text(sound.name).tag(sound.id)
+                            }
+                        }
+                    }
+                    .labelsHidden()
+
+                    Button {
+                        audio.playAlarmPreview(soundId: audio.secondaryAlerts[key]?.soundId ?? AlarmSound.all[0].id)
+                    } label: {
+                        Image(systemName: "play.circle")
+                    }
+                    .buttonStyle(.plain)
+                    .help("Preview alarm")
+                }
+                .padding(.horizontal, 14)
+                .padding(.bottom, 4)
+            }
+        }
+        .padding(.vertical, 4)
     }
 
     private var audioSection: some View {
@@ -126,13 +250,34 @@ struct MenuPanel: View {
             }
             .buttonStyle(.plain)
 
-            Button {
-                audio.playNow()
-            } label: {
-                Label("Play Amman Jordan Adhan now", systemImage: "play.fill")
+            HStack(spacing: 8) {
+                Image(systemName: audio.volume < 0.01 ? "speaker.slash.fill" : "speaker.fill")
+                    .foregroundStyle(.secondary)
+                    .frame(width: 16)
+                Slider(value: $audio.volume, in: 0...1)
+                Text("\(Int((audio.volume * 100).rounded()))%")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .frame(width: 36, alignment: .trailing)
             }
-            .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
+
+            if audio.isPlaying {
+                Button {
+                    audio.stopAndReset()
+                } label: {
+                    Label("Stop & reset Adhan", systemImage: "stop.fill")
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.red)
+            } else {
+                Button {
+                    audio.playNow()
+                } label: {
+                    Label("Play Amman Jordan Adhan now", systemImage: "play.fill")
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+            }
 
             Text(audio.statusLine)
                 .font(.caption2)
@@ -144,25 +289,9 @@ struct MenuPanel: View {
     private var actionsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             Button {
-                Task { await prayers.useDeviceLocation() }
-            } label: {
-                Label("Use my location", systemImage: "location.fill")
-            }
-            .buttonStyle(.plain)
-
-            Button {
                 Task { await prayers.refresh() }
             } label: {
                 Label("Refresh times", systemImage: "arrow.clockwise")
-            }
-            .buttonStyle(.plain)
-
-            Button {
-                if let url = URL(string: "http://127.0.0.1:8765/") {
-                    NSWorkspace.shared.open(url)
-                }
-            } label: {
-                Label("Open web player", systemImage: "safari")
             }
             .buttonStyle(.plain)
 
