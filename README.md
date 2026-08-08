@@ -1,10 +1,9 @@
 # myathan.link
 
-Static Athan prayer-times web player.
+Upload these files to the **root** of the GitHub repo (not inside a folder):
+- index.html
+- app.js
+- styles.css
+- audio/ (folder)
 
-## Cloudflare Pages
-
-- Framework preset: **None**
-- Build command: *(leave empty)*
-- Build output directory: `/`
-- Custom domain: `myathan.link`
+After upload, index.html must contain: app.js?v=preview-transport-1
