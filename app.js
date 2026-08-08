@@ -121,9 +121,9 @@ const LABELS = {
 
 const ALARM_PLAY_MS = 60_000;
 
-/** Tiny near-silent WAV used to keep the mobile audio session alive in background. */
+/** Tiny silent WAV — used to unlock autoplay without hearing Adhan/alarms. */
 const KEEP_ALIVE_SRC =
-  "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAA==";
+  "data:audio/wav;base64,UklGRiwAAABXQVZFZm10IBAAAAABAAEAIlYAAESsAAACABAAZGF0YQgAAAAAAAAAAA==";
 
 const STORAGE_KEY = "athan-player-settings-v1";
 
@@ -188,6 +188,7 @@ const state = {
   secondaryAlerts: structuredClone(DEFAULT_SECONDARY_ALERTS),
   lastPlayedKey: null,
   wakeLock: null,
+  audioCtx: null,
   alarmStopTimer: null,
   alarmLoopHandler: null,
   previewId: null,
@@ -760,6 +761,7 @@ async function previewAdhan(url, transportId, label) {
     els.adhanAudio.paused &&
     els.adhanAudio.currentTime > 0
   ) {
+    prepareAudiblePlayback(els.adhanAudio);
     await els.adhanAudio.play();
     state.previewId = transportId;
     setTransportActive(transportId, "playing");
@@ -771,6 +773,7 @@ async function previewAdhan(url, transportId, label) {
   if (!sameAudioSrc(els.adhanAudio, url)) {
     els.adhanAudio.src = url;
   }
+  prepareAudiblePlayback(els.adhanAudio);
   els.adhanAudio.currentTime = 0;
   await els.adhanAudio.play();
   state.previewId = transportId;
@@ -795,6 +798,7 @@ async function previewAlarmSound(soundId, transportId, label) {
     els.alarmAudio.paused &&
     els.alarmAudio.currentTime > 0
   ) {
+    prepareAudiblePlayback(els.alarmAudio);
     await els.alarmAudio.play();
     state.previewId = transportId;
     setTransportActive(transportId, "playing");
@@ -804,6 +808,7 @@ async function previewAlarmSound(soundId, transportId, label) {
   }
 
   els.alarmAudio.src = url;
+  prepareAudiblePlayback(els.alarmAudio);
   els.alarmAudio.currentTime = 0;
   await els.alarmAudio.play();
   state.previewId = transportId;
@@ -963,11 +968,11 @@ function bindMediaSessionHandlers() {
 async function startKeepAlive() {
   if (!els.keepAliveAudio || !state.audioEnabled) return;
   try {
-    if (!els.keepAliveAudio.src) {
-      els.keepAliveAudio.src = KEEP_ALIVE_SRC;
-    }
+    els.keepAliveAudio.src = KEEP_ALIVE_SRC;
     els.keepAliveAudio.loop = true;
-    els.keepAliveAudio.volume = 0.01;
+    // Unmuted silent file keeps Safari's autoplay permission for later Adhan.
+    els.keepAliveAudio.muted = false;
+    els.keepAliveAudio.volume = 1;
     await els.keepAliveAudio.play();
   } catch {
     /* mobile may still suspend; best-effort */
@@ -984,6 +989,57 @@ function stopKeepAlive() {
   }
 }
 
+/**
+ * Unlock HTML audio on a user gesture without playing Adhan/alarms.
+ * Important: do NOT use muted=true here — Safari won't allow later unmuted scheduled play.
+ */
+async function silentlyUnlockAudio() {
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (Ctx) {
+      if (!state.audioCtx) state.audioCtx = new Ctx();
+      if (state.audioCtx.state === "suspended") {
+        await state.audioCtx.resume();
+      }
+      const buffer = state.audioCtx.createBuffer(1, 1, 22050);
+      const source = state.audioCtx.createBufferSource();
+      source.buffer = buffer;
+      source.connect(state.audioCtx.destination);
+      source.start(0);
+    }
+  } catch {
+    /* optional */
+  }
+
+  const elements = [els.adhanAudio, els.alarmAudio, els.keepAliveAudio].filter(
+    Boolean
+  );
+  for (const el of elements) {
+    el.muted = false;
+    el.volume = 1;
+    el.src = KEEP_ALIVE_SRC;
+    await el.play();
+    el.pause();
+    el.currentTime = 0;
+  }
+
+  // Point Adhan/alarm at real files for later scheduled play — do not play them now.
+  syncAudioSource(true);
+  if (els.alarmAudio) {
+    els.alarmAudio.src = ALARM_SOUNDS[0].url;
+    els.alarmAudio.preload = "auto";
+  }
+  if (els.keepAliveAudio) {
+    els.keepAliveAudio.src = KEEP_ALIVE_SRC;
+  }
+}
+
+function prepareAudiblePlayback(audioEl) {
+  if (!audioEl) return;
+  audioEl.muted = false;
+  audioEl.volume = 1;
+}
+
 async function playAdhan(prayerName) {
   if (!state.audioEnabled) return;
   const url =
@@ -996,16 +1052,16 @@ async function playAdhan(prayerName) {
   try {
     clearAlarmPlayback();
     stopKeepAlive();
+    prepareAudiblePlayback(els.adhanAudio);
     els.adhanAudio.currentTime = 0;
     await els.adhanAudio.play();
     const label = LABELS[prayerName] || prayerName;
     els.audioHint.textContent = `Playing Adhan for ${label}.`;
     updateMediaSession("playing", `Adhan — ${label}`);
   } catch (err) {
-    state.audioEnabled = false;
-    updateAudioUi();
+    // Stay armed — a blocked attempt shouldn't turn autoplay off.
     els.audioHint.textContent =
-      "Autoplay was blocked. Click Enable Adhan audio again, then keep this tab open.";
+      "Scheduled Adhan was blocked by the browser. Toggle Audio Off then On again, and keep this tab open.";
     console.warn(err);
   }
 }
@@ -1019,6 +1075,7 @@ async function playAlarm(prayerName, soundId) {
   try {
     els.adhanAudio.pause();
     stopKeepAlive();
+    prepareAudiblePlayback(els.alarmAudio);
     els.alarmAudio.currentTime = 0;
 
     // Short alarm clips loop for 60s. Full Adhan picks in this dropdown play once.
@@ -1050,10 +1107,8 @@ async function playAlarm(prayerName, soundId) {
     }
     updateMediaSession("playing", `Alarm — ${label}`);
   } catch (err) {
-    state.audioEnabled = false;
-    updateAudioUi();
     els.audioHint.textContent =
-      "Autoplay was blocked. Click Enable Adhan audio again, then keep this tab open.";
+      "Scheduled alarm was blocked by the browser. Toggle Audio Off then On again, and keep this tab open.";
     console.warn(err);
   }
 }
@@ -1095,15 +1150,17 @@ function updateAudioUi() {
     state.audioEnabled ? "true" : "false"
   );
   els.enableAudioBtn.textContent = state.audioEnabled
-    ? "Disable Adhan audio"
-    : "Enable Adhan audio";
-  els.audioState.textContent = state.audioEnabled ? "Audio: on" : "Audio: off";
+    ? "Audio: On — plays at prayer time"
+    : "Audio: Off — tap to arm autoplay";
+  els.audioState.textContent = state.audioEnabled
+    ? "Audio: on (autoplay armed)"
+    : "Audio: off (manual preview only)";
   if (state.audioEnabled) {
     els.audioHint.textContent =
-      "Audio is armed. On phones, leave this tab open (screen can lock) — Adhan and alarms can still play in the background. Use Play / Pause / Stop beside each sound to preview.";
+      "Autoplay is On. No sound until the next scheduled Adhan or enabled alarm time. Preview buttons still work anytime.";
   } else {
     els.audioHint.textContent =
-      "Click Enable Adhan audio once so browsers allow autoplay at prayer time. You can still preview sounds with Play beside each picker.";
+      "Autoplay is Off — nothing plays automatically. You can still press Play beside any sound to hear it.";
   }
 }
 
@@ -1132,7 +1189,6 @@ function releaseWakeLock() {
 }
 
 async function toggleAudio() {
-  // Odd clicks enable, even clicks disable (toggle).
   if (state.audioEnabled) {
     state.audioEnabled = false;
     stopAllAudio({ keepArmed: false });
@@ -1142,26 +1198,20 @@ async function toggleAudio() {
     return;
   }
 
-  syncAudioSource(true);
   try {
-    await els.adhanAudio.play();
-    els.adhanAudio.pause();
-    els.adhanAudio.currentTime = 0;
-    // Also unlock the alarm element for secondary alerts.
-    els.alarmAudio.src = ALARM_SOUNDS[0].url;
-    await els.alarmAudio.play();
-    els.alarmAudio.pause();
-    els.alarmAudio.currentTime = 0;
+    await silentlyUnlockAudio();
     state.audioEnabled = true;
     updateAudioUi();
     await startKeepAlive();
     await requestWakeLock();
-    updateMediaSession("paused", "Athan — armed");
+    updateMediaSession("paused", "Athan — autoplay armed");
+    // Catch a prayer/alarm if Enable was pressed during that exact minute.
+    checkPrayerAlarm();
   } catch (err) {
     state.audioEnabled = false;
     updateAudioUi();
     els.audioHint.textContent =
-      "Could not unlock audio. Interact with the page and try again.";
+      "Could not arm autoplay. Tap the button again after interacting with the page.";
     console.warn(err);
   }
 }

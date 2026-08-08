@@ -1,9 +1,9 @@
 # myathan.link
 
-Upload these files to the **root** of the GitHub repo (not inside a folder):
+Upload these to the **root** of the GitHub repo (overwrite existing files):
 - index.html
 - app.js
 - styles.css
-- audio/ (folder)
+- audio/
 
-After upload, index.html must contain: app.js?v=preview-transport-1
+After upload, index.html should contain: app.js?v=autoplay-arm-2
