@@ -158,8 +158,8 @@ const els = {
   alarmAudio: document.getElementById("alarmAudio"),
   keepAliveAudio: document.getElementById("keepAliveAudio"),
   audioHint: document.getElementById("audioHint"),
-  enableAudioBtn: document.getElementById("enableAudioBtn"),
-  audioArmStatus: document.getElementById("audioArmStatus"),
+  audioArmToggle: document.getElementById("audioArmToggle"),
+  audioArmLabel: document.getElementById("audioArmLabel"),
   adhanTransport: document.getElementById("adhanTransport"),
   fajrAdhanTransport: document.getElementById("fajrAdhanTransport"),
   locationInput: document.getElementById("locationInput"),
@@ -190,6 +190,7 @@ const state = {
   lastPlayedKey: null,
   wakeLock: null,
   audioCtx: null,
+  audioArmToken: 0,
   alarmStopTimer: null,
   alarmLoopHandler: null,
   previewId: null,
@@ -934,7 +935,7 @@ function stopAllAudio({ keepArmed = true } = {}) {
     startKeepAlive();
   } else {
     els.audioHint.textContent =
-      "Click Enable Adhan audio once so browsers allow autoplay at prayer time.";
+      "Autoplay is off — nothing plays automatically. You can still press Play beside any sound to hear it.";
   }
 }
 
@@ -1156,32 +1157,68 @@ function checkPrayerAlarm() {
 
 function updateAudioUi() {
   const on = Boolean(state.audioEnabled);
-  els.enableAudioBtn.classList.toggle("is-on", on);
-  els.enableAudioBtn.setAttribute("aria-pressed", on ? "true" : "false");
-  els.enableAudioBtn.textContent = on ? "Audio: On" : "Audio: Off";
 
-  if (els.audioArmStatus) {
-    els.audioArmStatus.classList.toggle("is-on", on);
-    els.audioArmStatus.classList.toggle("is-off", !on);
-    els.audioArmStatus.textContent = on
-      ? "Status: On — armed for prayer / alarm times"
-      : "Status: Off — autoplay not armed";
+  if (els.audioArmToggle && els.audioArmToggle.checked !== on) {
+    els.audioArmToggle.checked = on;
+  }
+  if (els.audioArmLabel) {
+    els.audioArmLabel.textContent = on ? "Autoplay on" : "Autoplay off";
+  }
+  if (els.audioArmToggle?.closest(".audio-switch")) {
+    els.audioArmToggle
+      .closest(".audio-switch")
+      .classList.toggle("is-on", on);
   }
 
   if (els.audioState) {
     els.audioState.classList.toggle("is-on", on);
     els.audioState.classList.toggle("is-off", !on);
-    els.audioState.textContent = on
-      ? "Audio: On (armed)"
-      : "Audio: Off";
+    els.audioState.textContent = on ? "Audio: On (armed)" : "Audio: Off";
   }
 
   if (on) {
     els.audioHint.textContent =
-      "Autoplay is On. No sound until the next scheduled Adhan or enabled alarm time. Preview buttons still work anytime.";
+      "Autoplay is on. Adhan will play when the next prayer time is reached. Alarms play only if their toggles are on. Use Play beside a sound to preview anytime.";
   } else {
     els.audioHint.textContent =
-      "Autoplay is Off — nothing plays automatically. You can still press Play beside any sound to hear it.";
+      "Autoplay is off — nothing plays automatically. You can still press Play beside any sound to hear it.";
+  }
+}
+
+async function setAudioArmed(wantOn) {
+  const token = ++state.audioArmToken;
+
+  if (!wantOn) {
+    state.audioEnabled = false;
+    stopAllAudio({ keepArmed: false });
+    stopKeepAlive();
+    releaseWakeLock();
+    updateAudioUi();
+    return;
+  }
+
+  state.audioEnabled = true;
+  updateAudioUi();
+
+  try {
+    await silentlyUnlockAudio();
+    // User may have switched off while unlocking.
+    if (token !== state.audioArmToken || !state.audioEnabled) return;
+    await startKeepAlive();
+    if (token !== state.audioArmToken || !state.audioEnabled) return;
+    await requestWakeLock();
+    updateMediaSession("paused", "Athan — autoplay armed");
+    checkPrayerAlarm();
+    updateAudioUi();
+  } catch (err) {
+    if (token !== state.audioArmToken) return;
+    state.audioEnabled = false;
+    stopKeepAlive();
+    releaseWakeLock();
+    updateAudioUi();
+    els.audioHint.textContent =
+      "Could not arm autoplay. Flip the switch on again after interacting with the page.";
+    console.warn(err);
   }
 }
 
@@ -1206,41 +1243,6 @@ function releaseWakeLock() {
     }
   } catch {
     /* optional */
-  }
-}
-
-async function toggleAudio() {
-  // Turn off
-  if (state.audioEnabled) {
-    state.audioEnabled = false;
-    stopAllAudio({ keepArmed: false });
-    stopKeepAlive();
-    releaseWakeLock();
-    updateAudioUi();
-    return;
-  }
-
-  // Turn on immediately so the UI always reflects the tap, then unlock audio.
-  state.audioEnabled = true;
-  updateAudioUi();
-  els.enableAudioBtn.disabled = true;
-  try {
-    await silentlyUnlockAudio();
-    await startKeepAlive();
-    await requestWakeLock();
-    updateMediaSession("paused", "Athan — autoplay armed");
-    checkPrayerAlarm();
-    updateAudioUi();
-  } catch (err) {
-    state.audioEnabled = false;
-    stopKeepAlive();
-    releaseWakeLock();
-    updateAudioUi();
-    els.audioHint.textContent =
-      "Could not arm autoplay. Tap Audio: Off / On again after interacting with the page.";
-    console.warn(err);
-  } finally {
-    els.enableAudioBtn.disabled = false;
   }
 }
 
@@ -1367,7 +1369,9 @@ function bindUi() {
   syncAudioSource(true);
   updateAudioUi();
 
-  els.enableAudioBtn.addEventListener("click", toggleAudio);
+  els.audioArmToggle?.addEventListener("change", () => {
+    setAudioArmed(Boolean(els.audioArmToggle.checked));
+  });
   els.refreshBtn.addEventListener("click", () => refreshTimings());
   els.searchBtn.addEventListener("click", () => runSearch());
   els.locationInput.addEventListener("input", scheduleAutocomplete);
