@@ -1,9 +1,9 @@
 # myathan.link
 
-Upload these to the **root** of the GitHub repo (overwrite existing files):
+Upload to the **root** of the GitHub repo (overwrite):
 - index.html
 - app.js
 - styles.css
 - audio/
 
-After upload, index.html should contain: app.js?v=autoplay-arm-2
+Confirm index.html contains: app.js?v=audio-switch-1
