@@ -3,15 +3,21 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Athan — Prayer Times & Adhan Player</title>
+    <title>Athan 2.1.1 — Prayer Times & Adhan Player</title>
     <meta
       name="description"
       content="Leave this page open and Athan plays the call to prayer at Fajr, Dhuhr, Asr, Maghrib, and Isha for your city — anywhere in the world."
     />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Athan" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <link rel="apple-touch-icon" href="./logo.png" />
+    <link rel="manifest" href="./manifest.json" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Amiri:wght@400;700&family=Outfit:wght@300;400;500;600;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
     <link rel="stylesheet" href="./styles.css" />
@@ -25,10 +31,13 @@
 
     <header class="topbar">
       <a class="brand" href="./">
-        <span class="brand__mark" aria-hidden="true">✦</span>
-        <span class="brand__name">Athan</span>
+        <img class="brand__mark" src="./logo.png" alt="" width="32" height="32" />
+        <span class="brand__name">Athan 2.1.1</span>
       </a>
-      <p class="topbar__status" id="connectionStatus">Loading prayer times…</p>
+      <nav class="topbar__nav">
+        <a class="topbar__download" href="#download">Download</a>
+        <p class="topbar__status" id="connectionStatus">Loading prayer times…</p>
+      </nav>
     </header>
 
     <main class="shell">
@@ -47,15 +56,25 @@
             <strong id="localClock">—</strong>
           </p>
         </div>
-        <h1 class="hero__brand" id="brandHeadline">Athan</h1>
+        <h1 class="hero__brand" id="brandHeadline">Athan 2.1.1</h1>
         <p class="hero__lede">
-          Prayer times for your place. Leave the tab open — the Adhan plays when
-          it’s time.
+          Prayer times for your place. Next Adhan is Fajr, Dhuhr, Asr, Maghrib,
+          or Isha — Sunrise and night thirds stay optional alarms. Leave this
+          tab open on your phone or computer so Adhan can keep playing.
         </p>
         <div class="hero__actions">
-          <button type="button" class="btn btn--primary" id="enableAudioBtn">
-            Enable Adhan audio
-          </button>
+          <label class="audio-switch" for="audioArmToggle">
+            <input type="checkbox" id="audioArmToggle" />
+            <span class="audio-switch__track" aria-hidden="true"></span>
+            <span class="audio-switch__copy">
+              <strong id="audioArmLabel">Autoplay off</strong>
+              <small
+                >When on, Adhan plays automatically at the next prayer
+                time</small
+              >
+            </span>
+          </label>
+          <a class="btn btn--gold" href="#download">Download Athan</a>
         </div>
       </section>
 
@@ -76,7 +95,7 @@
           </div>
 
           <div class="countdown" id="countdownBlock" hidden>
-            <span class="countdown__label">Time until next prayer</span>
+            <span class="countdown__label">Time until next Adhan</span>
             <strong class="countdown__value" id="countdownValue">00:00:00</strong>
           </div>
 
@@ -86,7 +105,10 @@
             <label class="field-label" for="adhanSelect"
               >Select Adhan to play when it’s time</label
             >
-            <select id="adhanSelect" class="select"></select>
+            <div class="sound-row">
+              <select id="adhanSelect" class="select"></select>
+              <div class="transport" id="adhanTransport" aria-label="Preview Adhan"></div>
+            </div>
 
             <div class="checks">
               <label class="check">
@@ -103,24 +125,81 @@
               <label class="field-label" for="fajrAdhanSelect"
                 >Fajr Adhan</label
               >
-              <select id="fajrAdhanSelect" class="select"></select>
+              <div class="sound-row">
+                <select id="fajrAdhanSelect" class="select"></select>
+                <div
+                  class="transport"
+                  id="fajrAdhanTransport"
+                  aria-label="Preview Fajr Adhan"
+                ></div>
+              </div>
             </div>
 
             <div class="secondary-alerts" id="secondaryAlerts">
               <h3 class="secondary-alerts__title">Other times (alarm alerts)</h3>
               <p class="secondary-alerts__lede">
                 Sunrise, Midnight, First Third, and Tahajjud can optionally play
-                a short alarm instead of Adhan.
+                a short alarm for 60 seconds (or a full Adhan if you pick one).
+                Use Play next to each sound to preview it.
               </p>
               <div id="secondaryAlertsList"></div>
+              <div id="customAlarmsList"></div>
+              <form class="custom-alarm-form" id="customAlarmForm" hidden>
+                <h4 class="custom-alarm-form__title">Add daily alarm</h4>
+                <label class="field-label" for="customAlarmName">Name</label>
+                <input
+                  id="customAlarmName"
+                  class="input"
+                  type="text"
+                  maxlength="80"
+                  autocomplete="off"
+                  value="My alarm"
+                />
+                <label class="field-label" for="customAlarmTime">Time</label>
+                <input id="customAlarmTime" class="input" type="time" required />
+                <label class="field-label" for="customAlarmSound">Sound</label>
+                <select id="customAlarmSound" class="select"></select>
+                <div class="custom-alarm-form__actions">
+                  <button type="button" class="btn btn--ghost" id="customAlarmCancel">
+                    Cancel
+                  </button>
+                  <button type="submit" class="btn btn--gold" id="customAlarmSave">
+                    Save
+                  </button>
+                </div>
+              </form>
+              <button type="button" class="btn btn--ghost" id="addCustomAlarmBtn">
+                Add daily alarm
+              </button>
             </div>
 
             <div class="player">
-              <audio id="adhanAudio" controls preload="metadata"></audio>
-              <audio id="alarmAudio" preload="metadata" hidden></audio>
+              <audio
+                id="adhanAudio"
+                controls
+                preload="metadata"
+                playsinline
+                webkit-playsinline
+              ></audio>
+              <audio
+                id="alarmAudio"
+                preload="metadata"
+                playsinline
+                webkit-playsinline
+                hidden
+              ></audio>
+              <audio
+                id="keepAliveAudio"
+                preload="auto"
+                playsinline
+                webkit-playsinline
+                loop
+                hidden
+              ></audio>
               <p class="player__hint" id="audioHint">
                 Click <strong>Enable Adhan audio</strong> once so browsers allow
-                autoplay at prayer time.
+                autoplay at prayer time. Use Play / Pause / Stop beside each
+                Adhan or alarm to preview sounds.
               </p>
             </div>
           </div>
@@ -134,7 +213,7 @@
           </p>
 
           <label class="field-label" for="locationInput">Location</label>
-          <div class="search">
+          <div class="search search--location">
             <input
               id="locationInput"
               class="input"
@@ -143,6 +222,9 @@
               autocomplete="off"
               spellcheck="false"
             />
+            <button type="button" class="btn btn--ghost" id="findLocationBtn">
+              Find my location
+            </button>
             <button type="button" class="btn btn--gold" id="searchBtn">
               Search
             </button>
@@ -150,7 +232,7 @@
           <ul class="suggestions" id="suggestions" hidden></ul>
 
           <label class="field-label" for="methodSelect">Calculation method</label>
-          <select id="methodSelect" class="select"></select>
+          <select id="methodSelect" class="select select--method"></select>
 
           <label class="field-label" for="schoolSelect">Juristic school (Asr)</label>
           <select id="schoolSelect" class="select">
@@ -169,17 +251,74 @@
 
           <p class="footnote" id="metaNote">
             Data via Aladhan prayer-times API using the same ISNA method shown
-            on IslamicFinder for U.S. cities such as Tampa.
+            on IslamicFinder for U.S. cities such as Tampa. Native apps (Android
+            2.1.1 home widget + background Adhan, Mac menu bar) match this next-Adhan
+            logic.
           </p>
         </aside>
+      </section>
+
+      <section class="downloads" id="download" aria-labelledby="downloadHeading">
+        <h2 class="downloads__title" id="downloadHeading">Download Athan</h2>
+        <p class="downloads__lede">
+          Native apps can play Adhan in the background. This website needs the
+          tab (or Home Screen page) left open.
+        </p>
+        <div class="download-grid">
+          <article class="download-card">
+            <h3 class="download-card__title">Android</h3>
+            <p class="download-card__copy">
+              Version 2.1.1 with background Adhan and a home-screen widget.
+              Uninstall any older Athan 2.1 first, then sideload the APK.
+            </p>
+            <a
+              class="btn btn--gold"
+              href="https://github.com/k9t2htrkyd-netizen/myathan/releases/download/v2.1.1/Athan-2.1.1-android.apk"
+              >Download Android APK</a
+            >
+          </article>
+          <article class="download-card">
+            <h3 class="download-card__title">Mac menu bar</h3>
+            <p class="download-card__copy">
+              Athan v2 stays in the menu bar and can play on this Mac, Bluetooth,
+              and Google Nest. Unzip and open <strong>AthanBarV2.app</strong>.
+              The build is unsigned: if macOS blocks it, right-click and choose
+              Open.
+            </p>
+            <a
+              class="btn btn--gold"
+              href="https://github.com/k9t2htrkyd-netizen/myathan/releases/download/v2.1.1/Athan-2.1.1-menubar-macOS.zip"
+              >Download Mac app</a
+            >
+          </article>
+          <article class="download-card">
+            <h3 class="download-card__title">Add to iPhone</h3>
+            <p class="download-card__copy">
+              Safari → Share → Add to Home Screen. This is a bookmark, not an
+              App Store app. Adhan plays <strong>only while this page is
+              open</strong>. iOS Home Screen bookmarks do not run in the
+              background. Use Android or Mac for background Adhan.
+            </p>
+            <ol class="download-card__steps">
+              <li>Open myathan.link in Safari (not Chrome)</li>
+              <li>Tap the Share button</li>
+              <li>Tap Add to Home Screen, then Add</li>
+              <li>Leave Athan open when you want Adhan to play</li>
+            </ol>
+          </article>
+        </div>
+        <p class="downloads__note">
+          A Windows installer is not ready yet. There is no public iOS sideload
+          file.
+        </p>
       </section>
     </main>
 
     <footer class="statusbar">
       <span id="statusNext">Next prayer: —</span>
-      <span id="audioState">Audio: off</span>
+      <span id="audioState" class="statusbar__audio is-off">Audio: Off</span>
     </footer>
 
-    <script type="module" src="./app.js?v=secondary-sounds-rooster-1"></script>
+    <script type="module" src="./app.js?v=2.1.1-downloads"></script>
   </body>
 </html>

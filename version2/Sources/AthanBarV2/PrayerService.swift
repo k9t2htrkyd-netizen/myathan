@@ -22,6 +22,8 @@ final class PrayerService: ObservableObject {
     @Published var locationQuery: String = "Tampa, Florida, United States"
     @Published var suggestions: [PlaceSuggestion] = []
     @Published var isSearchingPlaces = false
+    @Published var isLocating = false
+    @Published var locationError: String?
     @Published var method: Int = 2
     @Published var school: Int = 0
 
@@ -30,6 +32,7 @@ final class PrayerService: ObservableObject {
     private var searchTask: Task<Void, Never>?
     private var searchRequestID = 0
     private let defaults = UserDefaults.standard
+    private var locationOnce: OneShotLocation?
 
     init() {
         loadSavedLocation()
@@ -71,6 +74,51 @@ final class PrayerService: ObservableObject {
         defaults.set(locationLabel, forKey: "locationLabel")
         defaults.set(method, forKey: "method")
         defaults.set(school, forKey: "school")
+    }
+
+    func findMyLocation() async {
+        isLocating = true
+        locationError = nil
+        let locator = OneShotLocation()
+        locationOnce = locator
+        do {
+            let location = try await locator.requestOnce()
+            let label = await reverseGeocode(latitude: location.coordinate.latitude, longitude: location.coordinate.longitude)
+            await selectPlace(
+                PlaceSuggestion(
+                    label: label,
+                    latitude: location.coordinate.latitude,
+                    longitude: location.coordinate.longitude,
+                    timezone: nil
+                )
+            )
+        } catch {
+            locationError = "Could not find this location."
+            statusText = "Location unavailable"
+        }
+        isLocating = false
+    }
+
+    private func reverseGeocode(latitude: Double, longitude: Double) async -> String {
+        let urlString =
+            "https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=\(latitude)&lon=\(longitude)"
+        guard let url = URL(string: urlString) else {
+            return String(format: "%.3f, %.3f", latitude, longitude)
+        }
+        var request = URLRequest(url: url)
+        request.setValue("Athan/2.1", forHTTPHeaderField: "User-Agent")
+        do {
+            let (data, _) = try await URLSession.shared.data(for: request)
+            let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+            let address = json?["address"] as? [String: Any] ?? [:]
+            let parts = [
+                address["city"] as? String ?? address["town"] as? String ?? address["village"] as? String,
+                address["state"] as? String,
+                address["country"] as? String
+            ].compactMap { $0 }.filter { !$0.isEmpty }
+            if !parts.isEmpty { return parts.joined(separator: ", ") }
+        } catch {}
+        return String(format: "%.3f, %.3f", latitude, longitude)
     }
 
     func schedulePlaceSearch(for query: String) {

@@ -1,0 +1,16 @@
+{
+  "name": "Athan 2.1.1",
+  "short_name": "Athan",
+  "description": "Prayer times and Adhan player. Keep the page open for audio.",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#0b1c18",
+  "theme_color": "#0d2f28",
+  "icons": [
+    {
+      "src": "./logo.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

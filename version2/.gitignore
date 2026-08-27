@@ -1,0 +1,7 @@
+.build/
+.cache/
+*.xcodeproj/
+DerivedData/
+._*
+.DS_Store
+AthanBarV2.app/

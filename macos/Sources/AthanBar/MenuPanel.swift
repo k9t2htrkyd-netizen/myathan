@@ -273,7 +273,7 @@ struct MenuPanel: View {
                 Button {
                     audio.playNow()
                 } label: {
-                    Label("Play Amman Jordan Adhan now", systemImage: "play.fill")
+                    Label("Play Jordan Adhan now", systemImage: "play.fill")
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)

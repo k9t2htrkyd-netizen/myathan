@@ -63,8 +63,19 @@ struct AlarmSound: Identifiable, Hashable {
     let name: String
     /// Local bundle resource name without extension (alarms/ or root).
     let fileName: String?
-    /// Remote CDN / HTTP URL when not bundled locally.
+    /// Remote CDN / HTTPS URL for this sound.
     let remoteURL: String?
+    /// Public HTTPS URL Nest/Chromecast can fetch. Matches the selected sound.
+    var cloudURL: URL? {
+        if let remoteURL, let url = URL(string: remoteURL) {
+            return url
+        }
+        guard let fileName else { return nil }
+        if Self.alarms.contains(where: { $0.id == id }) {
+            return URL(string: "https://myathan.link/audio/alarms/\(fileName).mp3")
+        }
+        return URL(string: "https://myathan.link/audio/\(fileName).mp3")
+    }
 
     static let alarms: [AlarmSound] = [
         .init(id: "classic-alarm", name: "Classic Alarm", fileName: "classic-alarm", remoteURL: nil),
@@ -124,7 +135,7 @@ struct AlarmSound: Identifiable, Hashable {
             id: "adhan-jordan",
             name: "Adhan by Ma'rouf Rashad Al-Sharif from Jordan",
             fileName: "athan-amman-jordan",
-            remoteURL: nil
+            remoteURL: "https://myathan.link/audio/athan-amman-jordan.mp3"
         ),
     ]
 
@@ -142,5 +153,36 @@ enum SecondaryAlertDefaults {
         "Midnight": .init(enabled: false, soundId: "digital-clock-beep"),
         "Firstthird": .init(enabled: false, soundId: "correct-answer-tone"),
         "Lastthird": .init(enabled: false, soundId: "classic-alarm"),
+    ]
+}
+
+struct CustomDailyAlarm: Identifiable, Equatable, Codable {
+    var id: String
+    var name: String
+    var hour: Int
+    var minute: Int
+    var enabled: Bool
+    var soundId: String
+
+    var time24: String { String(format: "%02d:%02d", hour, minute) }
+    var displayTime: String { PrayerTiming.formatDisplay(time24) }
+}
+
+struct CalculationMethod: Identifiable, Hashable {
+    let id: Int
+    let name: String
+    let shortName: String
+
+    static let all: [CalculationMethod] = [
+        .init(id: 2, name: "Islamic Society of North America (ISNA)", shortName: "ISNA"),
+        .init(id: 3, name: "Muslim World League", shortName: "Muslim World League"),
+        .init(id: 4, name: "Umm Al-Qura University, Makkah", shortName: "Umm Al-Qura"),
+        .init(id: 5, name: "Egyptian General Authority of Survey", shortName: "Egyptian"),
+        .init(id: 1, name: "University of Islamic Sciences, Karachi", shortName: "Karachi"),
+        .init(id: 8, name: "Gulf Region", shortName: "Gulf"),
+        .init(id: 9, name: "Kuwait", shortName: "Kuwait"),
+        .init(id: 10, name: "Qatar", shortName: "Qatar"),
+        .init(id: 13, name: "Diyanet İşleri Başkanlığı, Turkey", shortName: "Diyanet"),
+        .init(id: 16, name: "Dubai", shortName: "Dubai"),
     ]
 }

@@ -2,7 +2,7 @@ const JORDAN_ADHAN_URL = "./audio/athan-amman-jordan.mp3";
 
 const ADHANS = [
   {
-    name: "Yet Another Adhan by Mishary Rashid Alafasy",
+    name: "Adhan by Alafasy - style 1",
     url: "https://cdn.aladhan.com/audio/adhans/a9.mp3",
     theme: "alafasy",
   },
@@ -37,7 +37,7 @@ const ADHANS = [
     theme: "zahrani",
   },
   {
-    name: "Athan Amman Jordan — Ma'rouf Rashad Al-Sharif",
+    name: "Adhan by Ma'rouf Rashad Al-Sharif from Jordan",
     url: JORDAN_ADHAN_URL,
     theme: "jordan",
     credit: "https://soundcloud.com/jihad-khaled-m-abdulhaq/athan-amman-jordan",
@@ -45,22 +45,22 @@ const ADHANS = [
 ];
 
 const METHODS = [
-  { id: 2, name: "Islamic Society of North America (ISNA)" },
+  { id: 2, name: "ISNA" },
   { id: 3, name: "Muslim World League" },
-  { id: 4, name: "Umm Al-Qura University, Makkah" },
-  { id: 5, name: "Egyptian General Authority of Survey" },
-  { id: 1, name: "University of Islamic Sciences, Karachi" },
-  { id: 8, name: "Gulf Region" },
+  { id: 4, name: "Umm Al-Qura" },
+  { id: 5, name: "Egyptian" },
+  { id: 1, name: "Karachi" },
+  { id: 8, name: "Gulf" },
   { id: 9, name: "Kuwait" },
   { id: 10, name: "Qatar" },
-  { id: 11, name: "Majlis Ugama Islam Singapura (MUIS)" },
-  { id: 12, name: "Union des Organisations Islamiques de France" },
-  { id: 13, name: "Diyanet İşleri Başkanlığı, Turkey" },
-  { id: 14, name: "Spiritual Administration of Muslims of Russia" },
-  { id: 15, name: "Moonsighting Committee Worldwide" },
+  { id: 11, name: "Singapore (MUIS)" },
+  { id: 12, name: "France (UOIF)" },
+  { id: 13, name: "Diyanet" },
+  { id: 14, name: "Russia" },
+  { id: 15, name: "Moonsighting Committee" },
   { id: 16, name: "Dubai" },
-  { id: 0, name: "Shia Ithna-Ashari, Leva Institute, Qum" },
-  { id: 7, name: "Institute of Geophysics, University of Tehran" },
+  { id: 0, name: "Shia Ithna-Ashari" },
+  { id: 7, name: "Tehran" },
 ];
 
 const PRAYER_ORDER = [
@@ -119,6 +119,12 @@ const LABELS = {
   Lastthird: "Last Third (Tahajjud)",
 };
 
+const ALARM_PLAY_MS = 60_000;
+
+/** Tiny silent WAV — used to unlock autoplay without hearing Adhan/alarms. */
+const KEEP_ALIVE_SRC =
+  "data:audio/wav;base64,UklGRiwAAABXQVZFZm10IBAAAAABAAEAIlYAAESsAAACABAAZGF0YQgAAAAAAAAAAA==";
+
 const STORAGE_KEY = "athan-player-settings-v1";
 
 const DEFAULT_LOCATION = {
@@ -148,10 +154,23 @@ const els = {
   differentFajr: document.getElementById("differentFajr"),
   showCountdown: document.getElementById("showCountdown"),
   secondaryAlertsList: document.getElementById("secondaryAlertsList"),
+  customAlarmsList: document.getElementById("customAlarmsList"),
+  addCustomAlarmBtn: document.getElementById("addCustomAlarmBtn"),
+  customAlarmForm: document.getElementById("customAlarmForm"),
+  customAlarmName: document.getElementById("customAlarmName"),
+  customAlarmTime: document.getElementById("customAlarmTime"),
+  customAlarmSound: document.getElementById("customAlarmSound"),
+  customAlarmCancel: document.getElementById("customAlarmCancel"),
+  customAlarmSave: document.getElementById("customAlarmSave"),
+  findLocationBtn: document.getElementById("findLocationBtn"),
   adhanAudio: document.getElementById("adhanAudio"),
   alarmAudio: document.getElementById("alarmAudio"),
+  keepAliveAudio: document.getElementById("keepAliveAudio"),
   audioHint: document.getElementById("audioHint"),
-  enableAudioBtn: document.getElementById("enableAudioBtn"),
+  audioArmToggle: document.getElementById("audioArmToggle"),
+  audioArmLabel: document.getElementById("audioArmLabel"),
+  adhanTransport: document.getElementById("adhanTransport"),
+  fajrAdhanTransport: document.getElementById("fajrAdhanTransport"),
   locationInput: document.getElementById("locationInput"),
   searchBtn: document.getElementById("searchBtn"),
   suggestions: document.getElementById("suggestions"),
@@ -177,8 +196,15 @@ const state = {
   differentFajr: false,
   showCountdown: true,
   secondaryAlerts: structuredClone(DEFAULT_SECONDARY_ALERTS),
+  customAlarms: [],
   lastPlayedKey: null,
   wakeLock: null,
+  audioCtx: null,
+  audioArmToken: 0,
+  alarmStopTimer: null,
+  alarmLoopHandler: null,
+  previewId: null,
+  transportControls: new Map(),
   searchTimer: null,
   searchRequestId: 0,
 };
@@ -200,6 +226,7 @@ function loadSettings() {
         ...structuredClone(DEFAULT_SECONDARY_ALERTS),
         ...(saved.secondaryAlerts || {}),
       },
+      customAlarms: Array.isArray(saved.customAlarms) ? saved.customAlarms : [],
     });
     // Migrate older Jordan CDN links to the local SoundCloud file.
     if (
@@ -237,6 +264,7 @@ function saveSettings() {
       differentFajr: state.differentFajr,
       showCountdown: state.showCountdown,
       secondaryAlerts: state.secondaryAlerts,
+      customAlarms: state.customAlarms,
     })
   );
 }
@@ -462,6 +490,10 @@ function alarmUrlFor(soundId) {
 
 function renderSecondaryAlerts() {
   if (!els.secondaryAlertsList) return;
+  // Drop prior alarm transport bindings before rebuilding rows.
+  for (const key of [...state.transportControls.keys()]) {
+    if (key.startsWith("alarm-")) state.transportControls.delete(key);
+  }
   els.secondaryAlertsList.innerHTML = "";
   for (const key of SECONDARY_TIMES) {
     const cfg = state.secondaryAlerts[key] || DEFAULT_SECONDARY_ALERTS[key];
@@ -484,7 +516,8 @@ function renderSecondaryAlerts() {
 
     const select = document.createElement("select");
     select.className = "select";
-    select.disabled = !cfg.enabled;
+    // Keep sound picker enabled so every clip can be previewed even when Off.
+    select.disabled = false;
     const alarmGroup = document.createElement("optgroup");
     alarmGroup.label = "Alarms";
     for (const sound of ALARM_SOUNDS) {
@@ -504,6 +537,26 @@ function renderSecondaryAlerts() {
     select.append(alarmGroup, adhanGroup);
     select.value = cfg.sound;
 
+    const transportId = `alarm-${key}`;
+    const transport = createTransport(transportId, {
+      onPlay: async () => {
+        try {
+          const soundId = select.value;
+          const label =
+            SECONDARY_SOUNDS.find((s) => s.id === soundId)?.name ||
+            LABELS[key] ||
+            key;
+          await previewAlarmSound(soundId, transportId, label);
+        } catch (err) {
+          els.audioHint.textContent =
+            "Could not play alarm preview. Tap Play again after interacting with the page.";
+          console.warn(err);
+        }
+      },
+      onPause: () => pausePreview(transportId),
+      onStop: () => stopPreview(transportId),
+    });
+
     input.addEventListener("change", () => {
       if (!state.secondaryAlerts[key]) {
         state.secondaryAlerts[key] = {
@@ -512,7 +565,6 @@ function renderSecondaryAlerts() {
       }
       state.secondaryAlerts[key].enabled = input.checked;
       label.textContent = input.checked ? "On" : "Off";
-      select.disabled = !input.checked;
       saveSettings();
     });
     select.addEventListener("change", () => {
@@ -525,15 +577,139 @@ function renderSecondaryAlerts() {
       saveSettings();
     });
 
-    row.append(name, toggle, select);
+    // Previews work even when the alert is Off — so you can hear every sound.
+    row.append(name, toggle, select, transport);
     els.secondaryAlertsList.appendChild(row);
   }
+  renderCustomAlarms();
+}
+
+function renderCustomAlarms() {
+  if (!els.customAlarmsList) return;
+  els.customAlarmsList.innerHTML = "";
+  for (const alarm of state.customAlarms) {
+    const row = document.createElement("div");
+    row.className = "secondary-row";
+    const name = document.createElement("span");
+    name.className = "secondary-row__name";
+    name.textContent = `${alarm.name} · ${formatDisplayTime(
+      `${String(alarm.hour).padStart(2, "0")}:${String(alarm.minute).padStart(2, "0")}`
+    )}`;
+    const toggle = document.createElement("label");
+    toggle.className = "check";
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.checked = Boolean(alarm.enabled);
+    const label = document.createElement("span");
+    label.textContent = input.checked ? "On" : "Off";
+    toggle.append(input, label);
+    input.addEventListener("change", () => {
+      alarm.enabled = input.checked;
+      label.textContent = input.checked ? "On" : "Off";
+      saveSettings();
+    });
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "btn btn--ghost";
+    remove.textContent = "Remove";
+    remove.addEventListener("click", () => {
+      state.customAlarms = state.customAlarms.filter((item) => item.id !== alarm.id);
+      saveSettings();
+      renderCustomAlarms();
+    });
+    row.append(name, toggle, remove);
+    els.customAlarmsList.appendChild(row);
+  }
+}
+
+function defaultAlarmTimeValue() {
+  const now = new Date();
+  return `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+}
+
+function showCustomAlarmForm() {
+  if (!els.customAlarmForm) return;
+  if (els.customAlarmName) els.customAlarmName.value = "My alarm";
+  if (els.customAlarmTime) els.customAlarmTime.value = defaultAlarmTimeValue();
+  if (els.customAlarmSound && !els.customAlarmSound.value) {
+    els.customAlarmSound.value = "classic-alarm";
+  }
+  els.customAlarmForm.hidden = false;
+  if (els.addCustomAlarmBtn) els.addCustomAlarmBtn.hidden = true;
+  els.customAlarmName?.focus();
+  els.customAlarmName?.select();
+}
+
+function hideCustomAlarmForm() {
+  if (els.customAlarmForm) els.customAlarmForm.hidden = true;
+  if (els.addCustomAlarmBtn) els.addCustomAlarmBtn.hidden = false;
+}
+
+function saveCustomAlarmFromForm() {
+  const name = (els.customAlarmName?.value || "").trim() || "Alarm";
+  const time = els.customAlarmTime?.value || "";
+  const parts = time.split(":").map((part) => Number(part));
+  if (parts.length < 2 || Number.isNaN(parts[0]) || Number.isNaN(parts[1])) {
+    els.customAlarmTime?.focus();
+    return;
+  }
+  state.customAlarms.push({
+    id: String(Date.now()),
+    name,
+    hour: Math.min(23, Math.max(0, parts[0])),
+    minute: Math.min(59, Math.max(0, parts[1])),
+    enabled: true,
+    sound: els.customAlarmSound?.value || "classic-alarm",
+  });
+  saveSettings();
+  hideCustomAlarmForm();
+  renderCustomAlarms();
+}
+
+async function findMyLocation() {
+  if (!navigator.geolocation) {
+    els.audioHint.textContent = "This browser cannot share location.";
+    return;
+  }
+  els.findLocationBtn.disabled = true;
+  els.findLocationBtn.textContent = "Finding…";
+  navigator.geolocation.getCurrentPosition(
+    async (pos) => {
+      try {
+        const { latitude, longitude } = pos.coords;
+        const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${latitude}&lon=${longitude}`;
+        const response = await fetch(url, { headers: { "User-Agent": "Athan/2.1" } });
+        const json = await response.json();
+        const address = json.address || {};
+        const label = [address.city || address.town || address.village, address.state, address.country]
+          .filter(Boolean)
+          .join(", ") || json.display_name || `${latitude.toFixed(3)}, ${longitude.toFixed(3)}`;
+        state.location = { label, latitude, longitude, timezone: state.location.timezone };
+        els.locationInput.value = label;
+        saveSettings();
+        await refreshTimings();
+      } catch (err) {
+        console.warn(err);
+      } finally {
+        els.findLocationBtn.disabled = false;
+        els.findLocationBtn.textContent = "Find my location";
+      }
+    },
+    () => {
+      els.findLocationBtn.disabled = false;
+      els.findLocationBtn.textContent = "Find my location";
+      els.audioHint.textContent = "Location permission is used only when you tap Find my location.";
+    },
+    { enableHighAccuracy: false, timeout: 20000, maximumAge: 0 }
+  );
 }
 
 function findNextPrayer() {
   if (!state.timings) return null;
   const now = localMinutesNow();
-  const candidates = PRAYER_ORDER.filter((name) => state.timings[name]);
+  const candidates = PRAYER_ORDER.filter(
+    (name) => ADHAN_PRAYERS.has(name) && state.timings[name]
+  );
 
   for (const name of candidates) {
     if (prayerMinutes(state.timings[name]) > now) {
@@ -650,6 +826,367 @@ function syncAudioSource(force = false) {
   applyTheme(preferred);
 }
 
+function createTransport(id, { onPlay, onPause, onStop }, host = null) {
+  const wrap = host || document.createElement("div");
+  wrap.className = "transport";
+  wrap.dataset.transportId = id;
+  wrap.replaceChildren();
+
+  const play = document.createElement("button");
+  play.type = "button";
+  play.className = "transport__btn";
+  play.dataset.action = "play";
+  play.textContent = "Play";
+  play.addEventListener("click", () => onPlay());
+
+  const pause = document.createElement("button");
+  pause.type = "button";
+  pause.className = "transport__btn";
+  pause.dataset.action = "pause";
+  pause.textContent = "Pause";
+  pause.addEventListener("click", () => onPause());
+
+  const stop = document.createElement("button");
+  stop.type = "button";
+  stop.className = "transport__btn";
+  stop.dataset.action = "stop";
+  stop.textContent = "Stop";
+  stop.addEventListener("click", () => onStop());
+
+  wrap.append(play, pause, stop);
+  state.transportControls.set(id, { wrap, play, pause, stop });
+  return wrap;
+}
+
+function setTransportActive(id, mode) {
+  for (const [key, ctrl] of state.transportControls) {
+    ctrl.play.classList.toggle("is-active", key === id && mode === "playing");
+    ctrl.pause.classList.toggle("is-active", key === id && mode === "paused");
+    ctrl.stop.classList.toggle("is-active", false);
+  }
+}
+
+function sameAudioSrc(audioEl, url) {
+  if (!audioEl?.src || !url) return false;
+  try {
+    return new URL(url, window.location.href).href === audioEl.src;
+  } catch {
+    return audioEl.src.endsWith(url.replace(/^\.\//, ""));
+  }
+}
+
+async function previewAdhan(url, transportId, label) {
+  stopKeepAlive();
+  clearAlarmPlayback();
+  try {
+    els.alarmAudio.pause();
+  } catch {
+    /* ignore */
+  }
+
+  if (
+    state.previewId === transportId &&
+    sameAudioSrc(els.adhanAudio, url) &&
+    !els.adhanAudio.paused
+  ) {
+    return;
+  }
+
+  if (
+    state.previewId === transportId &&
+    sameAudioSrc(els.adhanAudio, url) &&
+    els.adhanAudio.paused &&
+    els.adhanAudio.currentTime > 0
+  ) {
+    prepareAudiblePlayback(els.adhanAudio);
+    await els.adhanAudio.play();
+    state.previewId = transportId;
+    setTransportActive(transportId, "playing");
+    els.audioHint.textContent = `Playing preview: ${label}`;
+    updateMediaSession("playing", label);
+    return;
+  }
+
+  if (!sameAudioSrc(els.adhanAudio, url)) {
+    els.adhanAudio.src = url;
+  }
+  prepareAudiblePlayback(els.adhanAudio);
+  els.adhanAudio.currentTime = 0;
+  await els.adhanAudio.play();
+  state.previewId = transportId;
+  setTransportActive(transportId, "playing");
+  els.audioHint.textContent = `Playing preview: ${label}`;
+  updateMediaSession("playing", label);
+}
+
+async function previewAlarmSound(soundId, transportId, label) {
+  stopKeepAlive();
+  try {
+    els.adhanAudio.pause();
+  } catch {
+    /* ignore */
+  }
+  clearAlarmPlayback();
+
+  const url = alarmUrlFor(soundId);
+  if (
+    state.previewId === transportId &&
+    sameAudioSrc(els.alarmAudio, url) &&
+    els.alarmAudio.paused &&
+    els.alarmAudio.currentTime > 0
+  ) {
+    prepareAudiblePlayback(els.alarmAudio);
+    await els.alarmAudio.play();
+    state.previewId = transportId;
+    setTransportActive(transportId, "playing");
+    els.audioHint.textContent = `Playing preview: ${label}`;
+    updateMediaSession("playing", label);
+    return;
+  }
+
+  els.alarmAudio.src = url;
+  prepareAudiblePlayback(els.alarmAudio);
+  els.alarmAudio.currentTime = 0;
+  await els.alarmAudio.play();
+  state.previewId = transportId;
+  setTransportActive(transportId, "playing");
+  els.audioHint.textContent = `Playing preview: ${label}`;
+  updateMediaSession("playing", label);
+}
+
+function pausePreview(transportId) {
+  const usingAdhan =
+    transportId === "adhan" || transportId === "fajr-adhan";
+  const audio = usingAdhan ? els.adhanAudio : els.alarmAudio;
+  try {
+    audio.pause();
+  } catch {
+    /* ignore */
+  }
+  if (state.previewId === transportId) {
+    setTransportActive(transportId, "paused");
+    els.audioHint.textContent = "Paused preview.";
+    updateMediaSession("paused");
+  }
+}
+
+function stopPreview(transportId) {
+  const usingAdhan =
+    transportId === "adhan" || transportId === "fajr-adhan";
+  if (usingAdhan) {
+    try {
+      els.adhanAudio.pause();
+      els.adhanAudio.currentTime = 0;
+    } catch {
+      /* ignore */
+    }
+  } else {
+    clearAlarmPlayback();
+  }
+  if (state.previewId === transportId || !transportId) {
+    state.previewId = null;
+    setTransportActive(transportId || "", "stopped");
+    if (state.audioEnabled) startKeepAlive();
+    els.audioHint.textContent = state.audioEnabled
+      ? "Stopped. Audio is still armed for prayer time."
+      : "Preview stopped.";
+    updateMediaSession("stopped");
+  }
+}
+
+function mountAdhanTransports() {
+  const fill = (host, id, getUrl, getLabel) => {
+    if (!host) return;
+    createTransport(
+      id,
+      {
+        onPlay: async () => {
+          try {
+            await previewAdhan(getUrl(), id, getLabel());
+          } catch (err) {
+            els.audioHint.textContent =
+              "Could not play Adhan preview. Tap Play again after interacting with the page.";
+            console.warn(err);
+          }
+        },
+        onPause: () => pausePreview(id),
+        onStop: () => stopPreview(id),
+      },
+      host
+    );
+  };
+
+  fill(
+    els.adhanTransport,
+    "adhan",
+    () => els.adhanSelect.value,
+    () => ADHANS.find((a) => a.url === els.adhanSelect.value)?.name || "Adhan"
+  );
+  fill(
+    els.fajrAdhanTransport,
+    "fajr-adhan",
+    () => els.fajrAdhanSelect.value,
+    () =>
+      ADHANS.find((a) => a.url === els.fajrAdhanSelect.value)?.name ||
+      "Fajr Adhan"
+  );
+}
+
+function isShortAlarmSound(soundId) {
+  return ALARM_SOUNDS.some((s) => s.id === soundId);
+}
+
+function clearAlarmPlayback() {
+  if (state.alarmStopTimer) {
+    clearTimeout(state.alarmStopTimer);
+    state.alarmStopTimer = null;
+  }
+  if (state.alarmLoopHandler) {
+    els.alarmAudio.removeEventListener("ended", state.alarmLoopHandler);
+    state.alarmLoopHandler = null;
+  }
+  try {
+    els.alarmAudio.pause();
+    els.alarmAudio.currentTime = 0;
+  } catch {
+    /* ignore */
+  }
+}
+
+function stopAllAudio({ keepArmed = true } = {}) {
+  clearAlarmPlayback();
+  try {
+    els.adhanAudio.pause();
+    els.adhanAudio.currentTime = 0;
+  } catch {
+    /* ignore */
+  }
+  state.previewId = null;
+  setTransportActive("", "stopped");
+  updateMediaSession("stopped");
+  if (keepArmed && state.audioEnabled) {
+    els.audioHint.textContent =
+      "Stopped. Audio is still armed — alarms and Adhan will play at the next scheduled time.";
+    startKeepAlive();
+  } else {
+    els.audioHint.textContent =
+      "Autoplay is off — nothing plays automatically. You can still press Play beside any sound to hear it.";
+  }
+}
+
+function updateMediaSession(stateName, title = "Athan") {
+  if (!("mediaSession" in navigator)) return;
+  try {
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title,
+      artist: "Athan",
+      album: "Prayer times",
+    });
+    navigator.mediaSession.playbackState =
+      stateName === "playing" ? "playing" : "paused";
+  } catch {
+    /* optional */
+  }
+}
+
+function bindMediaSessionHandlers() {
+  if (!("mediaSession" in navigator)) return;
+  try {
+    navigator.mediaSession.setActionHandler("pause", () => stopAllAudio());
+    navigator.mediaSession.setActionHandler("stop", () => stopAllAudio());
+    navigator.mediaSession.setActionHandler("play", () => {
+      if (state.audioEnabled) startKeepAlive();
+    });
+  } catch {
+    /* optional */
+  }
+}
+
+async function startKeepAlive() {
+  if (!els.keepAliveAudio || !state.audioEnabled) return;
+  try {
+    els.keepAliveAudio.src = KEEP_ALIVE_SRC;
+    els.keepAliveAudio.loop = true;
+    // Unmuted silent file keeps Safari's autoplay permission for later Adhan.
+    els.keepAliveAudio.muted = false;
+    els.keepAliveAudio.volume = 1;
+    await els.keepAliveAudio.play();
+  } catch {
+    /* mobile may still suspend; best-effort */
+  }
+}
+
+function stopKeepAlive() {
+  if (!els.keepAliveAudio) return;
+  try {
+    els.keepAliveAudio.pause();
+    els.keepAliveAudio.currentTime = 0;
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
+ * Unlock HTML audio on a user gesture without playing Adhan/alarms.
+ * Important: do NOT use muted=true here — Safari won't allow later unmuted scheduled play.
+ */
+async function silentlyUnlockAudio() {
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (Ctx) {
+      if (!state.audioCtx) state.audioCtx = new Ctx();
+      if (state.audioCtx.state === "suspended") {
+        await state.audioCtx.resume();
+      }
+      const buffer = state.audioCtx.createBuffer(1, 1, 22050);
+      const source = state.audioCtx.createBufferSource();
+      source.buffer = buffer;
+      source.connect(state.audioCtx.destination);
+      source.start(0);
+    }
+  } catch {
+    /* optional */
+  }
+
+  const elements = [els.adhanAudio, els.alarmAudio, els.keepAliveAudio].filter(
+    Boolean
+  );
+  let unlocked = 0;
+  for (const el of elements) {
+    try {
+      el.muted = false;
+      el.volume = 1;
+      el.src = KEEP_ALIVE_SRC;
+      await el.play();
+      el.pause();
+      el.currentTime = 0;
+      unlocked += 1;
+    } catch (err) {
+      console.warn("Audio unlock skipped for", el.id, err);
+    }
+  }
+
+  // Point Adhan/alarm at real files for later scheduled play — do not play them now.
+  syncAudioSource(true);
+  if (els.alarmAudio) {
+    els.alarmAudio.src = ALARM_SOUNDS[0].url;
+    els.alarmAudio.preload = "auto";
+  }
+  if (els.keepAliveAudio) {
+    els.keepAliveAudio.src = KEEP_ALIVE_SRC;
+  }
+
+  if (!unlocked) {
+    throw new Error("Could not unlock any audio element");
+  }
+}
+
+function prepareAudiblePlayback(audioEl) {
+  if (!audioEl) return;
+  audioEl.muted = false;
+  audioEl.volume = 1;
+}
+
 async function playAdhan(prayerName) {
   if (!state.audioEnabled) return;
   const url =
@@ -660,15 +1197,18 @@ async function playAdhan(prayerName) {
     els.adhanAudio.src = url;
   }
   try {
-    els.alarmAudio.pause();
+    clearAlarmPlayback();
+    stopKeepAlive();
+    prepareAudiblePlayback(els.adhanAudio);
     els.adhanAudio.currentTime = 0;
     await els.adhanAudio.play();
-    els.audioHint.textContent = `Playing Adhan for ${LABELS[prayerName] || prayerName}.`;
+    const label = LABELS[prayerName] || prayerName;
+    els.audioHint.textContent = `Playing Adhan for ${label}.`;
+    updateMediaSession("playing", `Adhan — ${label}`);
   } catch (err) {
-    state.audioEnabled = false;
-    updateAudioUi();
+    // Stay armed — a blocked attempt shouldn't turn autoplay off.
     els.audioHint.textContent =
-      "Autoplay was blocked. Click Enable Adhan audio again, then keep this tab open.";
+      "Scheduled Adhan was blocked by the browser. Toggle Audio Off then On again, and keep this tab open.";
     console.warn(err);
   }
 }
@@ -676,17 +1216,46 @@ async function playAdhan(prayerName) {
 async function playAlarm(prayerName, soundId) {
   if (!state.audioEnabled) return;
   const url = alarmUrlFor(soundId);
+  const label = LABELS[prayerName] || prayerName;
+  clearAlarmPlayback();
   els.alarmAudio.src = url;
   try {
     els.adhanAudio.pause();
+    stopKeepAlive();
+    prepareAudiblePlayback(els.alarmAudio);
     els.alarmAudio.currentTime = 0;
-    await els.alarmAudio.play();
-    els.audioHint.textContent = `Playing alarm for ${LABELS[prayerName] || prayerName}.`;
+
+    // Short alarm clips loop for 60s. Full Adhan picks in this dropdown play once.
+    if (isShortAlarmSound(soundId)) {
+      const endsAt = Date.now() + ALARM_PLAY_MS;
+      state.alarmLoopHandler = () => {
+        if (Date.now() >= endsAt) {
+          clearAlarmPlayback();
+          startKeepAlive();
+          els.audioHint.textContent = `Alarm finished for ${label}.`;
+          updateMediaSession("stopped");
+          return;
+        }
+        els.alarmAudio.currentTime = 0;
+        els.alarmAudio.play().catch(() => {});
+      };
+      els.alarmAudio.addEventListener("ended", state.alarmLoopHandler);
+      state.alarmStopTimer = setTimeout(() => {
+        clearAlarmPlayback();
+        startKeepAlive();
+        els.audioHint.textContent = `Alarm finished for ${label}.`;
+        updateMediaSession("stopped");
+      }, ALARM_PLAY_MS);
+      await els.alarmAudio.play();
+      els.audioHint.textContent = `Playing alarm for ${label} (60 seconds).`;
+    } else {
+      await els.alarmAudio.play();
+      els.audioHint.textContent = `Playing alert sound for ${label}.`;
+    }
+    updateMediaSession("playing", `Alarm — ${label}`);
   } catch (err) {
-    state.audioEnabled = false;
-    updateAudioUi();
     els.audioHint.textContent =
-      "Autoplay was blocked. Click Enable Adhan audio again, then keep this tab open.";
+      "Scheduled alarm was blocked by the browser. Toggle Audio Off then On again, and keep this tab open.";
     console.warn(err);
   }
 }
@@ -719,24 +1288,83 @@ function checkPrayerAlarm() {
     playAlarm(name, cfg.sound);
     return;
   }
+
+  const nowDate = new Date();
+  for (const alarm of state.customAlarms) {
+    if (!alarm.enabled) continue;
+    if (alarm.hour !== nowDate.getHours() || alarm.minute !== nowDate.getMinutes()) continue;
+    const key = `${day}:custom:${alarm.id}`;
+    if (state.lastPlayedKey === key) return;
+    state.lastPlayedKey = key;
+    playAlarm(alarm.name, alarm.sound || "classic-alarm");
+    return;
+  }
 }
 
 function updateAudioUi() {
-  els.enableAudioBtn.classList.toggle("is-on", state.audioEnabled);
-  els.enableAudioBtn.setAttribute(
-    "aria-pressed",
-    state.audioEnabled ? "true" : "false"
-  );
-  els.enableAudioBtn.textContent = state.audioEnabled
-    ? "Disable Adhan audio"
-    : "Enable Adhan audio";
-  els.audioState.textContent = state.audioEnabled ? "Audio: on" : "Audio: off";
-  if (state.audioEnabled) {
+  const on = Boolean(state.audioEnabled);
+
+  if (els.audioArmToggle && els.audioArmToggle.checked !== on) {
+    els.audioArmToggle.checked = on;
+  }
+  if (els.audioArmLabel) {
+    els.audioArmLabel.textContent = on ? "Autoplay on" : "Autoplay off";
+  }
+  if (els.audioArmToggle?.closest(".audio-switch")) {
+    els.audioArmToggle
+      .closest(".audio-switch")
+      .classList.toggle("is-on", on);
+  }
+
+  if (els.audioState) {
+    els.audioState.classList.toggle("is-on", on);
+    els.audioState.classList.toggle("is-off", !on);
+    els.audioState.textContent = on ? "Audio: On (armed)" : "Audio: Off";
+  }
+
+  if (on) {
     els.audioHint.textContent =
-      "Audio is armed. Keep this tab open and unmuted to hear the Adhan at prayer time. Click the button again to turn it off.";
+      "Autoplay is on. Adhan will play when the next prayer time is reached. Alarms play only if their toggles are on. Use Play beside a sound to preview anytime.";
   } else {
     els.audioHint.textContent =
-      "Click Enable Adhan audio once so browsers allow autoplay at prayer time.";
+      "Autoplay is off — nothing plays automatically. You can still press Play beside any sound to hear it.";
+  }
+}
+
+async function setAudioArmed(wantOn) {
+  const token = ++state.audioArmToken;
+
+  if (!wantOn) {
+    state.audioEnabled = false;
+    stopAllAudio({ keepArmed: false });
+    stopKeepAlive();
+    releaseWakeLock();
+    updateAudioUi();
+    return;
+  }
+
+  state.audioEnabled = true;
+  updateAudioUi();
+
+  try {
+    await silentlyUnlockAudio();
+    // User may have switched off while unlocking.
+    if (token !== state.audioArmToken || !state.audioEnabled) return;
+    await startKeepAlive();
+    if (token !== state.audioArmToken || !state.audioEnabled) return;
+    await requestWakeLock();
+    updateMediaSession("paused", "Athan — autoplay armed");
+    checkPrayerAlarm();
+    updateAudioUi();
+  } catch (err) {
+    if (token !== state.audioArmToken) return;
+    state.audioEnabled = false;
+    stopKeepAlive();
+    releaseWakeLock();
+    updateAudioUi();
+    els.audioHint.textContent =
+      "Could not arm autoplay. Flip the switch on again after interacting with the page.";
+    console.warn(err);
   }
 }
 
@@ -761,43 +1389,6 @@ function releaseWakeLock() {
     }
   } catch {
     /* optional */
-  }
-}
-
-async function toggleAudio() {
-  // Odd clicks enable, even clicks disable (toggle).
-  if (state.audioEnabled) {
-    state.audioEnabled = false;
-    try {
-      els.adhanAudio.pause();
-      els.alarmAudio.pause();
-    } catch {
-      /* ignore */
-    }
-    releaseWakeLock();
-    updateAudioUi();
-    return;
-  }
-
-  syncAudioSource(true);
-  try {
-    await els.adhanAudio.play();
-    els.adhanAudio.pause();
-    els.adhanAudio.currentTime = 0;
-    // Also unlock the alarm element for secondary alerts.
-    els.alarmAudio.src = ALARM_SOUNDS[0].url;
-    await els.alarmAudio.play();
-    els.alarmAudio.pause();
-    els.alarmAudio.currentTime = 0;
-    state.audioEnabled = true;
-    updateAudioUi();
-    await requestWakeLock();
-  } catch (err) {
-    state.audioEnabled = false;
-    updateAudioUi();
-    els.audioHint.textContent =
-      "Could not unlock audio. Interact with the page and try again.";
-    console.warn(err);
   }
 }
 
@@ -920,12 +1511,31 @@ function bindUi() {
   els.fajrAdhanRow.hidden = !state.differentFajr;
   els.locationInput.value = state.location.label;
   renderSecondaryAlerts();
+  mountAdhanTransports();
   syncAudioSource(true);
   updateAudioUi();
 
-  els.enableAudioBtn.addEventListener("click", toggleAudio);
+  els.audioArmToggle?.addEventListener("change", () => {
+    setAudioArmed(Boolean(els.audioArmToggle.checked));
+  });
   els.refreshBtn.addEventListener("click", () => refreshTimings());
   els.searchBtn.addEventListener("click", () => runSearch());
+  els.findLocationBtn?.addEventListener("click", () => findMyLocation());
+  if (els.customAlarmSound) {
+    fillSelect(
+      els.customAlarmSound,
+      SECONDARY_SOUNDS,
+      (sound) => sound.id,
+      (sound) => sound.name,
+      "classic-alarm"
+    );
+  }
+  els.addCustomAlarmBtn?.addEventListener("click", () => showCustomAlarmForm());
+  els.customAlarmCancel?.addEventListener("click", () => hideCustomAlarmForm());
+  els.customAlarmForm?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    saveCustomAlarmFromForm();
+  });
   els.locationInput.addEventListener("input", scheduleAutocomplete);
   els.locationInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter") {
@@ -993,8 +1603,30 @@ function bindUi() {
   document.addEventListener("visibilitychange", async () => {
     if (document.visibilityState === "visible" && state.audioEnabled) {
       await requestWakeLock();
+      await startKeepAlive();
     }
   });
+
+  els.adhanAudio.addEventListener("ended", () => {
+    updateMediaSession("stopped");
+    if (state.previewId === "adhan" || state.previewId === "fajr-adhan") {
+      setTransportActive(state.previewId, "stopped");
+      state.previewId = null;
+    }
+    if (state.audioEnabled) startKeepAlive();
+  });
+  els.alarmAudio.addEventListener("ended", () => {
+    // Loop handler for scheduled short alarms owns restart; previews end here.
+    if (!state.alarmLoopHandler) {
+      if (state.previewId?.startsWith("alarm-")) {
+        setTransportActive(state.previewId, "stopped");
+        state.previewId = null;
+      }
+      if (state.audioEnabled) startKeepAlive();
+    }
+  });
+
+  bindMediaSessionHandlers();
 }
 
 async function init() {
