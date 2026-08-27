@@ -1,14 +1,14 @@
 # Athan 2.1 — session handoff
 
 **Date:** 26 Aug 2026  
-**Stop point:** Mac menu-bar “Add daily alarm” no longer quits the app; website next-Adhan + inline alarm form match 2.1.1.  
+**Stop point:** Site 2.1.1 pushed to GitHub `main` for Cloudflare (`myathan.link`). Mac menu-bar test succeeded; do not rebuild.  
 **Workspace:** `/Volumes/My Book/New Project 1`
 
 ### 26 Aug — Mac menu bar + website
 
-**Mac (`version2/`, AthanBarV2):** “Add daily alarm” used a SwiftUI `.sheet` + `DatePicker` on a `MenuBarExtra` accessory window, which dismissed/crashed the extra (looked like a full quit). The add-alarm UI is now **inline** in the panel: name, hour/minute pickers (no calendar popover), sound, Cancel/Save. Same save path: `audio.addCustomAlarm`. Next prayer now skips Sunrise / Midnight / First Third / Tahajjud (`playsAdhan` only), matching Android 2.1.1. Rebuild: `version2/build-and-run.sh`. Dist copy: `dist/AthanBarV2.app`.
+**Mac (`version2/`, AthanBarV2):** “Add daily alarm” used a SwiftUI `.sheet` + `DatePicker` on a `MenuBarExtra` accessory window, which dismissed/crashed the extra (looked like a full quit). The add-alarm UI is now **inline** in the panel: name, hour/minute pickers (no calendar popover), sound, Cancel/Save. Same save path: `audio.addCustomAlarm`. Next prayer now skips Sunrise / Midnight / First Third / Tahajjud (`playsAdhan` only), matching Android 2.1.1. User confirmed the rebuilt app works. Dist copy: `dist/AthanBarV2.app`. Download zip (no rebuild): `dist/Athan-2.1.1-menubar-macOS.zip`.
 
-**Website:** `findNextPrayer()` uses Fajr/Dhuhr/Asr/Maghrib/Isha only. Add daily alarm is an inline form (not `window.prompt`). Download section: Android APK + Mac DMG via GitHub Releases, plus **Add to iPhone** (Safari → Share → Add to Home Screen) with honest copy that Adhan will **not** play in the background. Cache bust `app.js?v=2.1.1-downloads`. Live: `https://myathan.link/` and `#download`.
+**Website:** `findNextPrayer()` uses Fajr/Dhuhr/Asr/Maghrib/Isha only. Add daily alarm is an inline form (not `window.prompt`). Download section: Android APK + Mac zip via GitHub Release `v2.1.1`, plus **Add to iPhone** (Safari → Share → Add to Home Screen) with honest copy that Adhan will **not** play in the background. Cache bust `app.js?v=2.1.1-downloads`. Live: `https://myathan.link/` and `#download`. Hard-refresh after Cloudflare deploys.
 
 ---
 
